@@ -356,7 +356,7 @@ export function addBox(
   r: number,
   g: number,
   b: number,
-  uvk = 0.16,
+  uvk = 0.24,
   ry = 0,
   uOff = 0,
   vOff = 0,
@@ -494,7 +494,7 @@ export function addCylinder(
   r: number,
   g: number,
   b: number,
-  uvk = 0.16,
+  uvk = 0.24,
   uOff = 0,
 ) {
   const y0 = cy,
@@ -631,6 +631,8 @@ function pickBucket(buckets: [Bucket, number][], r: number): Bucket {
  */
 export function buildBuildings(
   districts: DistrictState[],
+  /** teinte de donnee par quartier (rampe de la couche active). */
+  tint: Record<string, THREE.Color>,
 ): Record<Bucket, THREE.BufferGeometry> {
   const sinks: Record<Bucket, Sink> = {
     concrete: newSink(),
@@ -678,10 +680,22 @@ export function buildBuildings(
     const pitch = block + street;
     const depth = 4.2; // profondeur du front bâti
 
-    const inside = (lx: number, lz: number) => {
+    const insidePt = (lx: number, lz: number) => {
       const [wx, wz] = toWorldL(lx, lz);
       return pointInPoly(wx / WORLD_W + 0.5, wz / WORLD_D + 0.5, d.poly);
     };
+    /** l'emprise entiere doit tenir dans le quartier (pas de debord). */
+    const footprintInside = (lcx: number, lcz: number, ax: number, az: number) => {
+      const hx = ax / 2 + 0.6;
+      const hz = az / 2 + 0.6;
+      return (
+        insidePt(lcx - hx, lcz - hz) &&
+        insidePt(lcx + hx, lcz - hz) &&
+        insidePt(lcx + hx, lcz + hz) &&
+        insidePt(lcx - hx, lcz + hz)
+      );
+    };
+    const dTint = tint[d.id] ?? new THREE.Color(0.6, 0.6, 0.6);
 
     const place = (
       lcx: number,
@@ -690,28 +704,42 @@ export function buildBuildings(
       alongZ: number,
       corner: boolean,
     ) => {
-      if (!inside(lcx, lcz)) return;
+      if (!footprintInside(lcx, lcz, alongX, alongZ)) return;
       const [wx, wz] = toWorldL(lcx, lcz);
       const bucket = pickBucket(style.buckets, rng());
       const s = sinks[bucket];
-      const shade = 0.82 + rng() * 0.32;
-      const col = FN_STYLE[d.fn].color;
-      let cr = col[0] * shade,
-        cg = col[1] * shade,
-        cb = col[2] * shade;
+      const shade = 0.84 + rng() * 0.3;
+
+      // Couleur de base propre a la matiere…
+      let mr: number, mg: number, mb: number;
       if (bucket === "glass") {
-        cr = 0.32 * shade;
-        cg = 0.4 * shade;
-        cb = 0.5 * shade;
+        mr = 0.42;
+        mg = 0.5;
+        mb = 0.6;
       } else if (bucket === "brick") {
-        cr = 0.6 * shade;
-        cg = 0.38 * shade;
-        cb = 0.32 * shade;
+        mr = 0.66;
+        mg = 0.42;
+        mb = 0.35;
+      } else if (bucket === "industrial") {
+        mr = 0.54;
+        mg = 0.56;
+        mb = 0.55;
       } else if (bucket === "dark") {
-        cr *= 0.6;
-        cg *= 0.6;
-        cb *= 0.62;
+        mr = 0.4;
+        mg = 0.41;
+        mb = 0.44;
+      } else {
+        mr = 0.7;
+        mg = 0.68;
+        mb = 0.63;
       }
+      // …melangee a la teinte de la couche de donnee : ce sont les
+      // batiments qui portent l'information, pas le sol.
+      const k = 0.85;
+      const gain = 1.5; // les facades doivent lire la donnee franchement
+      const cr = (mr * (1 - k) + dTint.r * k) * shade * gain;
+      const cg = (mg * (1 - k) + dTint.g * k) * shade * gain;
+      const cb = (mb * (1 - k) + dTint.b * k) * shade * gain;
       const uOff = rng() * 4;
       const vOff = rng() * 4;
       const hBase = style.hMin + (style.hMax - style.hMin) * densF;
@@ -726,10 +754,10 @@ export function buildBuildings(
 
       if (bucket === "glass" && corner && h > 16) {
         // tour ronde de verre en tete d'ilot
-        addCylinder(s, wx, 0, wz, Math.min(sx, sz) * 0.42, Math.min(sx, sz) * 0.5, h, 12, cr, cg, cb, 0.16, uOff);
-        addCylinder(s, wx, h, wz, Math.min(sx, sz) * 0.3, Math.min(sx, sz) * 0.42, 1.4, 12, cr * 0.8, cg * 0.8, cb * 0.8, 0.16, uOff);
+        addCylinder(s, wx, 0, wz, Math.min(sx, sz) * 0.42, Math.min(sx, sz) * 0.5, h, 12, cr, cg, cb, 0.24, uOff);
+        addCylinder(s, wx, h, wz, Math.min(sx, sz) * 0.3, Math.min(sx, sz) * 0.42, 1.4, 12, cr * 0.8, cg * 0.8, cb * 0.8, 0.24, uOff);
       } else {
-        addBox(s, wx, 0, wz, sx, h, sz, cr, cg, cb, 0.16, theta, uOff, vOff);
+        addBox(s, wx, 0, wz, sx, h, sz, cr, cg, cb, 0.24, theta, uOff, vOff);
         if (style.gableRoofs && rng() > 0.35) {
           addGable(s, wx, h, wz, sx, Math.min(sx, sz) * 0.45 + 0.6, sz, cr * 0.85, cg * 0.8, cb * 0.72, theta);
         } else if (rng() > 0.55) {
@@ -744,13 +772,13 @@ export function buildBuildings(
             cr * 0.75,
             cg * 0.75,
             cb * 0.75,
-            0.16,
+            0.24,
             theta,
             uOff,
             vOff,
           );
           if (corner && h > 18 && rng() > 0.5)
-            addBox(s, wx, h + 1.6, wz, 0.3, 2 + rng() * 4, 0.3, 0.18, 0.18, 0.18, 0.16, theta);
+            addBox(s, wx, h + 1.6, wz, 0.3, 2 + rng() * 4, 0.3, 0.18, 0.18, 0.18, 0.24, theta);
         }
       }
     };
@@ -1083,12 +1111,12 @@ export function skyTexture(): THREE.CanvasTexture {
   c.height = 256;
   const ctx = c.getContext("2d")!;
   const grad = ctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, "#0f1830");
-  grad.addColorStop(0.42, "#26324e");
-  grad.addColorStop(0.5, "#4a4d63");
-  grad.addColorStop(0.58, "#b3703f");
-  grad.addColorStop(0.66, "#7a5a4a");
-  grad.addColorStop(1, "#141a20");
+  grad.addColorStop(0, "#16213a");
+  grad.addColorStop(0.42, "#33415e");
+  grad.addColorStop(0.5, "#5f6a7c");
+  grad.addColorStop(0.58, "#9a8570");
+  grad.addColorStop(0.66, "#6d6a66");
+  grad.addColorStop(1, "#1b2026");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 64, 256);
   const tex = new THREE.CanvasTexture(c);

@@ -94,7 +94,7 @@ export function CityScene() {
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
     renderer.setSize(width, height);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.25;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
@@ -115,7 +115,7 @@ export function CityScene() {
     pmrem.dispose();
 
     // Lumiere crepusculaire : soleil rasant chaud
-    const sun = new THREE.DirectionalLight(0xffb26b, 2.7);
+    const sun = new THREE.DirectionalLight(0xffe0c0, 2.2);
     sun.position.set(72, 52, 30);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -129,7 +129,7 @@ export function CityScene() {
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.6;
     scene.add(sun);
-    scene.add(new THREE.HemisphereLight(0x4a6690, 0x1a1712, 0.7));
+    scene.add(new THREE.HemisphereLight(0x7d97b8, 0x201d18, 1.0));
 
     // Textures procedurales
     const facades = makeBuildingTextures(renderer);
@@ -168,12 +168,15 @@ export function CityScene() {
     const grounds: GroundEntry[] = [];
     for (const d of ys0.districts) {
       const geo = districtGroundGeometry(d.poly);
+      // Le sol reste sobre : la donnee est portee par les batiments.
       const mat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(rampColor(st0.mapMetric, metricValue(d, st0.mapMetric))),
-        roughness: 0.9,
+        color: new THREE.Color(
+          rampColor(st0.mapMetric, metricValue(d, st0.mapMetric)),
+        ).multiplyScalar(0.16),
+        roughness: 0.95,
         metalness: 0.02,
         normalMap: concreteNormal,
-        normalScale: new THREE.Vector2(0.3, 0.3),
+        normalScale: new THREE.Vector2(0.35, 0.35),
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.y = 0.02;
@@ -196,11 +199,11 @@ export function CityScene() {
       Bucket,
       { rough: number; metal: number; env: number; emi: number; nrm: number }
     > = {
-      concrete: { rough: 0.82, metal: 0.02, env: 0.35, emi: 0.35, nrm: 0.9 },
-      glass: { rough: 0.16, metal: 0.55, env: 1.25, emi: 0.85, nrm: 0.5 },
-      brick: { rough: 0.92, metal: 0.0, env: 0.28, emi: 0.3, nrm: 1.0 },
-      industrial: { rough: 0.88, metal: 0.18, env: 0.32, emi: 0.22, nrm: 0.85 },
-      dark: { rough: 0.78, metal: 0.06, env: 0.3, emi: 0.28, nrm: 0.9 },
+      concrete: { rough: 0.82, metal: 0.02, env: 0.35, emi: 0.2, nrm: 0.9 },
+      glass: { rough: 0.16, metal: 0.5, env: 1.0, emi: 0.5, nrm: 0.5 },
+      brick: { rough: 0.92, metal: 0.0, env: 0.28, emi: 0.16, nrm: 1.0 },
+      industrial: { rough: 0.88, metal: 0.18, env: 0.32, emi: 0.12, nrm: 0.85 },
+      dark: { rough: 0.78, metal: 0.06, env: 0.3, emi: 0.16, nrm: 0.9 },
     };
     const buildingMats = {} as Record<Bucket, THREE.MeshStandardMaterial>;
     for (const b of BUILDING_BUCKETS) {
@@ -292,7 +295,11 @@ export function CityScene() {
         m.geometry.dispose();
       }
       ctx.buildingMeshes = [];
-      const geoms = buildBuildings(yearState.districts);
+      const metric = getState().mapMetric;
+      const tint: Record<string, THREE.Color> = {};
+      for (const d of yearState.districts)
+        tint[d.id] = new THREE.Color(rampColor(metric, metricValue(d, metric)));
+      const geoms = buildBuildings(yearState.districts, tint);
       for (const b of BUILDING_BUCKETS) {
         const g = geoms[b];
         if (g.attributes.position.count === 0) {
@@ -378,14 +385,14 @@ export function CityScene() {
       const s = getState();
       const ys = s.projection.byYear[s.currentYear];
       const t = clock.getElapsedTime();
-      const sig = `${s.currentYear}|${s.projection.active.join(",")}`;
+      const sig = `${s.currentYear}|${s.mapMetric}|${s.projection.active.join(",")}`;
       if (sig !== ctx.signature) {
         ctx.signature = sig;
         rebuild(ys, s.projection.active);
       }
       for (const g of ctx.grounds) {
         const d = ys.districts.find((x) => x.id === g.id)!;
-        tmpColor.set(rampColor(s.mapMetric, metricValue(d, s.mapMetric)));
+        tmpColor.set(rampColor(s.mapMetric, metricValue(d, s.mapMetric))).multiplyScalar(0.16);
         g.mat.color.lerp(tmpColor, manual ? 1 : 0.15);
         const isSel = s.selectedDistrict === g.id;
         const isHov = hoverRef.current === g.id;
