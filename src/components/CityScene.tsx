@@ -19,6 +19,7 @@ import {
   buildStreetLights,
   districtGroundGeometry,
   districtLabelHeight,
+  districtRingGeometry,
   FLOW_ROUTES,
   makeBuildingTextures,
   makeConcreteNormal,
@@ -38,8 +39,8 @@ import {
 interface GroundEntry {
   mesh: THREE.Mesh;
   mat: THREE.MeshStandardMaterial;
-  border: THREE.LineLoop;
-  borderMat: THREE.LineBasicMaterial;
+  border: THREE.Mesh;
+  borderMat: THREE.MeshBasicMaterial;
   id: string;
 }
 interface Flow {
@@ -195,13 +196,17 @@ export function CityScene() {
       mesh.receiveShadow = true;
       mesh.userData.id = d.id;
       scene.add(mesh);
-      const borderMat = new THREE.LineBasicMaterial({
+      // Anneau arrondi enveloppant le quartier, centre sur son etiquette.
+      const borderMat = new THREE.MeshBasicMaterial({
         color: 0xe9e5d9,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.24,
+        depthWrite: false,
+        toneMapped: false,
+        side: THREE.DoubleSide,
       });
-      const border = new THREE.LineLoop(districtGroundGeometry(d.poly), borderMat);
-      border.position.y = 0.05;
+      const border = new THREE.Mesh(districtRingGeometry(d.poly), borderMat);
+      border.position.y = 0.06;
       scene.add(border);
       grounds.push({ mesh, mat, border, borderMat, id: d.id });
     }
@@ -395,9 +400,10 @@ export function CityScene() {
       for (const sm of ctx.smog) {
         const d = yearState.districts.find((x) => x.id === sm.id);
         const p = d ? Math.max(0, (d.pollution - 42) / 58) : 0;
-        sm.mesh.visible = p > 0.02;
-        sm.mat.opacity = p * 0.3;
-        sm.mesh.position.y = 16 + p * 10;
+        // voile leger : il doit se lire comme une brume, jamais comme une plaque
+        sm.mesh.visible = p > 0.06;
+        sm.mat.opacity = p * 0.11;
+        sm.mesh.position.y = 26 + p * 12;
       }
 
       if (ctx.treeMesh) {
@@ -492,8 +498,8 @@ export function CityScene() {
         const isHov = hoverRef.current === g.id;
         g.mat.emissive.copy(g.mat.color);
         g.mat.emissiveIntensity = isSel ? 1.6 : isHov ? 0.8 : 0.1;
-        g.borderMat.color.set(isSel ? 0xf2c14e : 0xe9e5d9);
-        g.borderMat.opacity = isSel ? 0.9 : isHov ? 0.5 : 0.2;
+        g.borderMat.color.set(isSel ? 0xf2c14e : isHov ? 0xffffff : 0xe9e5d9);
+        g.borderMat.opacity = isSel ? 0.95 : isHov ? 0.62 : 0.22;
       }
       if (!s.reducedMotion) {
         for (const f of ctx.flows) {

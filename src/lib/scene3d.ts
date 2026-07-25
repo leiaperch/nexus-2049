@@ -1456,9 +1456,98 @@ export function riverGeometry(width = 7): THREE.BufferGeometry {
   return g;
 }
 
+/**
+ * Adoucit un polygone par decoupe de coins (Chaikin) : les limites de
+ * quartier deviennent des courbes fermees plutot que des angles vifs.
+ */
+function chaikin(pts: [number, number][], iters: number): [number, number][] {
+  let p = pts;
+  for (let k = 0; k < iters; k++) {
+    const out: [number, number][] = [];
+    for (let i = 0; i < p.length; i++) {
+      const a = p[i];
+      const b = p[(i + 1) % p.length];
+      out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+      out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+    }
+    p = out;
+  }
+  return p;
+}
+
+/**
+ * Contour arrondi d'un quartier, en coordonnees normalisees.
+ * `inflate` > 1 fait bomber la courbe vers l'exterieur pour qu'elle
+ * enveloppe tout le bâti au lieu d'en rogner les angles.
+ */
+export function districtOutline(
+  poly: [number, number][],
+  inflate = 1.015,
+  iters = 3,
+): [number, number][] {
+  let cx = 0;
+  let cy = 0;
+  for (const [x, y] of poly) {
+    cx += x;
+    cy += y;
+  }
+  cx /= poly.length;
+  cy /= poly.length;
+  const scaled = poly.map(
+    ([x, y]) => [cx + (x - cx) * inflate, cy + (y - cy) * inflate] as [number, number],
+  );
+  return chaikin(scaled, iters);
+}
+
+/**
+ * Anneau au sol : ruban plat suivant le contour arrondi. Un ruban plutot
+ * qu'une ligne, car l'epaisseur des lignes n'est pas fiable en WebGL.
+ */
+export function districtRingGeometry(
+  poly: [number, number][],
+  inflate = 1.015,
+  width = 0.42,
+): THREE.BufferGeometry {
+  const pts = districtOutline(poly, inflate).map(([nx, ny]) => {
+    const [x, z] = toWorld(nx, ny);
+    return new THREE.Vector2(x, z);
+  });
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const uv: number[] = [];
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const px = (-dy / len) * width;
+    const py = (dx / len) * width;
+    const quad = [
+      [a.x + px, a.y + py],
+      [a.x - px, a.y - py],
+      [b.x - px, b.y - py],
+      [a.x + px, a.y + py],
+      [b.x - px, b.y - py],
+      [b.x + px, b.y + py],
+    ];
+    for (const [x, z] of quad) {
+      pos.push(x, 0, z);
+      nor.push(0, 1, 0);
+      uv.push(0, 0);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+
 export function districtGroundGeometry(poly: [number, number][]): THREE.BufferGeometry {
   const shape = new THREE.Shape();
-  poly.forEach(([nx, ny], i) => {
+  districtOutline(poly).forEach(([nx, ny], i) => {
     const [x, z] = toWorld(nx, ny);
     if (i === 0) shape.moveTo(x, z);
     else shape.lineTo(x, z);
