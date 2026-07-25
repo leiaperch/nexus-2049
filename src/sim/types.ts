@@ -38,9 +38,11 @@ export interface ScaleSpec {
 }
 
 export const SCALES: ScaleSpec[] = [
-  { key: "minimal", label: "Minimal", cost: 0.42, effect: 0.48, trustBias: 1.5, political: 0.55 },
+  // Le minimal est bon marche mais sous-dimensionne : il laisse
+  // des sequelles, d'autant plus lourdes sur une crise.
+  { key: "minimal", label: "Minimal", cost: 0.45, effect: 0.42, trustBias: 1.5, political: 0.55 },
   { key: "mesure", label: "Mesuré", cost: 1, effect: 1, trustBias: 0, political: 1 },
-  { key: "ambitieux", label: "Ambitieux", cost: 1.75, effect: 1.6, trustBias: -3, political: 1.7 },
+  { key: "ambitieux", label: "Ambitieux", cost: 1.7, effect: 1.68, trustBias: -3, political: 1.7 },
 ];
 
 export const SCALE_BY_KEY = Object.fromEntries(

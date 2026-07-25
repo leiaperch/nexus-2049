@@ -26,10 +26,36 @@ function cloneDistricts(ds: DistrictState[]): DistrictState[] {
   return ds.map((d) => ({ ...d, poly: d.poly, center: d.center }));
 }
 
+/** Indices bornes 0-100 ou chaque point supplementaire coute plus cher. */
+const BOUNDED: (keyof Indicators)[] = [
+  "qol",
+  "energy",
+  "mobility",
+  "biodiversity",
+  "trust",
+];
+
+/**
+ * Applique un jeu d'effets avec rendements decroissants.
+ *
+ * Sans cela, les effets continus s'additionnent lineairement annee apres
+ * annee et tous les indices finissent colles a 100 : la ville devient
+ * parfaite quoi qu'on fasse. Ici, gagner un point devient d'autant plus
+ * difficile que le niveau est deja haut — et symetriquement, les
+ * dernieres tonnes de carbone sont les plus dures a supprimer.
+ */
 function addIndicators(target: Indicators, delta: Partial<Indicators>) {
   for (const k in delta) {
     const key = k as keyof Indicators;
-    target[key] += delta[key] as number;
+    let v = delta[key] as number;
+    if (v > 0 && BOUNDED.includes(key)) {
+      const t = clamp(target[key] / 100, 0, 1);
+      v *= Math.max(0.05, 1 - t * t);
+    } else if (v < 0 && key === "carbon") {
+      const t = clamp(target.carbon / 18.4, 0, 1);
+      v *= Math.max(0.08, t * t);
+    }
+    target[key] += v;
   }
 }
 
@@ -113,18 +139,21 @@ function relaxDistricts(districts: DistrictState[], globalTrust: number) {
 
 /** Derive de fond du territoire (business as usual), appliquee chaque annee. */
 function baselineDrift(ind: Indicators, year: number) {
-  // pression climatique et croissance tendancielle
+  // Pression climatique et usure. L'entretien coute d'autant plus cher
+  // que le niveau atteint est eleve : sans effort continu, un territoire
+  // tres bien dote redescend. C'est ce qui empeche les indicateurs de se
+  // figer au plafond une fois quelques politiques votees.
   addIndicators(ind, {
     carbon: 0.18, // le fil de l'eau reste emetteur
-    qol: -0.25,
-    biodiversity: -0.4,
-    mobility: -0.2,
+    qol: -0.25 - Math.max(0, ind.qol - 60) * 0.035,
+    biodiversity: -0.4 - Math.max(0, ind.biodiversity - 55) * 0.03,
+    mobility: -0.2 - Math.max(0, ind.mobility - 58) * 0.03,
   });
   // La confiance derive vers la qualite de vie percue : une ville ou l'on
   // vit bien pardonne les arbitrages impopulaires, et inversement.
   ind.trust += (ind.qol - ind.trust) * 0.045 - 0.2;
-  // energie decarbonee progresse lentement toute seule (marche)
-  ind.energy += 0.4;
+  // energie decarbonee : le marche fait le debut du chemin, pas la fin
+  ind.energy += 0.5 * (1 - ind.energy / 100);
   // choc climatique tendanciel plus fort apres 2060
   if (year >= 2060) ind.carbon += 0.12;
 
@@ -134,7 +163,7 @@ function baselineDrift(ind: Indicators, year: number) {
   // climatique croissante. Le socle est calibre pour financer environ un
   // arbitrage par an : bien choisir laisse une marge, empiler les gros
   // investissements creuse la dette.
-  const revenue = 82 + (ind.qol - 58) * 0.9 + (ind.trust - 55) * 0.5;
+  const revenue = 76 + (ind.qol - 58) * 0.45 + (ind.trust - 55) * 0.45;
   const debtService = ind.budget < 0 ? -ind.budget * 0.045 : 0;
   const charges =
     24 + (year >= 2060 ? 8 : 0) + Math.max(0, ind.carbon - 12) * 0.6 + debtService;
@@ -144,7 +173,7 @@ function baselineDrift(ind: Indicators, year: number) {
   // Se reconstitue chaque annee, d'autant plus vite que la population
   // adhere. Une ville defiante ne renouvelle presque plus le credit de
   // son executif : les arbitrages contestes deviennent impossibles.
-  ind.capital += 11 + (ind.trust - 55) * 0.16;
+  ind.capital += 12 + (ind.trust - 55) * 0.16;
 }
 
 /** Evenements de fond declenches par franchissement de seuils. */
@@ -216,7 +245,7 @@ function scaled(part: Partial<Indicators> | undefined, k: number): Partial<Indic
 export function politicalCost(d: Decision, scale: Scale): number {
   const s = SCALE_BY_KEY[scale];
   const contested = Math.max(0, -(d.immediate.trust ?? 0));
-  const base = 7 + contested * 2.2 + d.upfront * 0.035;
+  const base = 6 + contested * 2.2 + d.upfront * 0.035;
   return Math.round(base * s.political);
 }
 
@@ -295,6 +324,45 @@ export function project(enacted: EnactedDecision[]): Projection {
         scheduleEffect(
           year + de.delay,
           { ...de, indicators: scaled(de.indicators, s.effect) },
+          d.id,
+        );
+      }
+
+      // — Sequelles d'une reponse sous-dimensionnee —
+      // Repondre au rabais coute moins cher tout de suite et laisse le
+      // probleme entier. Rien n'est annonce : le joueur decouvre la note
+      // plus tard, ce qui rend le choix du minimal reellement risque.
+      const shortfall = Math.max(0, 1 - s.effect);
+      if (shortfall > 0.05) {
+        const k = d.kind === "crise" ? shortfall : shortfall * 0.45;
+        scheduleEffect(
+          year + (d.kind === "crise" ? 2 : 4),
+          {
+            delay: 0,
+            indicators: {
+              qol: -7 * k,
+              trust: -8 * k,
+              budget: -120 * k,
+            },
+            tone: "negatif",
+            narrative:
+              d.kind === "crise"
+                ? `Les suites de ${d.ref} n'ont jamais été traitées au fond : reprise en urgence des ouvrages provisoires, aux frais de la collectivité.`
+                : `${d.ref} conduite au strict minimum : la mesure doit être reprise, et son coût différé s'ajoute au budget.`,
+          },
+          d.id,
+        );
+      }
+      // Une reponse ample laisse au contraire un acquis durable.
+      if (s.effect > 1.3 && d.kind === "crise") {
+        scheduleEffect(
+          year + 3,
+          {
+            delay: 0,
+            indicators: { qol: 3, trust: 4, biodiversity: 1.5 },
+            tone: "positif",
+            narrative: `La réponse ample apportée à ${d.ref} laisse des ouvrages surdimensionnés : le territoire encaisse les chocs suivants sans dommage.`,
+          },
           d.id,
         );
       }

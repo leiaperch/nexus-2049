@@ -2396,3 +2396,13 @@
     animation: none !important;
   }
 }
+
+/* Issue de secours : aucun dossier finançable cette annee */
+.dm-carence {
+  border-color: var(--signal);
+  color: var(--paper);
+  background: rgba(221, 75, 42, 0.12);
+}
+.dm-carence:hover {
+  background: rgba(221, 75, 42, 0.22);
+}

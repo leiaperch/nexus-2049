@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { INDICATOR_BY_KEY, TRACK_META } from "../sim/data";
-import { DEBT_CEILING, financialCost, politicalCost } from "../sim/engine";
+import {
+  anyAffordable,
+  DEBT_CEILING,
+  financialCost,
+  politicalCost,
+} from "../sim/engine";
 import { SCALES, SCALE_BY_KEY, type Decision, type Scale } from "../sim/types";
 import { actions, useStore } from "../store/store";
 import { INDICATOR_COLORVAR } from "../lib/colors";
@@ -17,6 +22,9 @@ export function YearDossiers() {
   const state = useStore();
   const ref = useRef<HTMLDivElement>(null);
   const offers = actions.currentOffers();
+  // aucun dossier finançable : le conseil ne peut que constater sa carence
+  const ind = state.projection.byYear[state.currentYear].indicators;
+  const impasse = offers.length > 0 && !anyAffordable(offers, ind);
 
   useEffect(() => {
     ref.current?.querySelector<HTMLElement>(".dossier-go")?.focus();
@@ -74,9 +82,21 @@ export function YearDossiers() {
           <button className="btn" onClick={() => actions.dismissDossiers()}>
             Examiner la ville d'abord
           </button>
-          <span className="label dm-hint">
-            un arbitrage relance la projection · <kbd>Échap</kbd> pour différer
-          </span>
+          {impasse ? (
+            <button
+              className="btn dm-carence"
+              onClick={() => {
+                actions.dismissDossiers();
+                actions.stepYear(1);
+              }}
+            >
+              Constater la carence et passer l'année →
+            </button>
+          ) : (
+            <span className="label dm-hint">
+              un arbitrage relance la projection · <kbd>Échap</kbd> pour différer
+            </span>
+          )}
         </footer>
       </motion.div>
     </motion.div>
