@@ -424,25 +424,51 @@ export function CityScene() {
       ctx.controls.update();
       ctx.renderer.render(ctx.scene, ctx.camera);
 
+      // — Etiquettes de quartier —
+      // Ancrees au-dessus de la silhouette bâtie, au droit du centroide.
+      // On ne les recadre PAS de force : une etiquette plaquee au bord
+      // ne designerait plus rien. Hors champ, on la masque.
       const w = ctx.renderer.domElement.clientWidth;
       const h = ctx.renderer.domElement.clientHeight;
-      for (const d of ys.districts) {
-        const btn = btnRefs.current.get(d.id);
+      const placed: { x: number; y: number }[] = [];
+      const marked = ys.districts
+        .map((d) => {
+          const [x, z] = toWorld(d.center[0], d.center[1]);
+          proj.set(x, districtLabelHeight(d), z).project(ctx.camera);
+          return {
+            d,
+            sx: (proj.x * 0.5 + 0.5) * w,
+            sy: (-proj.y * 0.5 + 0.5) * h,
+            depth: proj.z,
+          };
+        })
+        // les plus proches se placent d'abord et gardent leur position
+        .sort((a, b) => a.depth - b.depth);
+
+      for (const m of marked) {
+        const btn = btnRefs.current.get(m.d.id);
         if (!btn) continue;
-        const [x, z] = toWorld(d.center[0], d.center[1]);
-        proj.set(x, districtLabelHeight(d), z).project(ctx.camera);
-        let sx = (proj.x * 0.5 + 0.5) * w;
-        let sy = (-proj.y * 0.5 + 0.5) * h;
-        // hors champ derriere la camera, ou trop loin du cadre : on masque
-        const visible =
-          proj.z < 1 && sx > -60 && sx < w + 60 && sy > -60 && sy < h + 60;
-        // sinon on confine l'etiquette au cadre de la maquette pour
-        // qu'elle ne chevauche jamais l'interface autour
-        sx = Math.min(Math.max(sx, 52), Math.max(52, w - 52));
-        sy = Math.min(Math.max(sy, 16), Math.max(16, h - 16));
-        btn.style.transform = `translate(-50%, -50%) translate(${sx}px, ${sy}px)`;
-        btn.style.opacity = visible ? "1" : "0";
-        btn.style.pointerEvents = visible ? "auto" : "none";
+        const inFrame =
+          m.depth < 1 &&
+          m.sx > 44 &&
+          m.sx < w - 44 &&
+          m.sy > 12 &&
+          m.sy < h - 12;
+        let sy = m.sy;
+        if (inFrame) {
+          // ecarter verticalement les etiquettes qui se recouvrent
+          for (let pass = 0; pass < 6; pass++) {
+            const clash = placed.find(
+              (p) => Math.abs(p.x - m.sx) < 84 && Math.abs(p.y - sy) < 20,
+            );
+            if (!clash) break;
+            sy = clash.y - 21;
+          }
+          placed.push({ x: m.sx, y: sy });
+        }
+        btn.style.transform = `translate(-50%, -50%) translate(${m.sx}px, ${sy}px)`;
+        btn.style.opacity = inFrame ? "1" : "0";
+        btn.style.pointerEvents = inFrame ? "auto" : "none";
       }
     };
 

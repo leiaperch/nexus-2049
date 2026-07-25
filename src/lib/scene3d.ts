@@ -1044,6 +1044,29 @@ export function buildBuildings(
       }
     };
 
+    // — Zone humide : habitat diffus, pas d'ilots —
+    // Le Bas-Marais n'est pas loti : c'est un semis lache de constructions
+    // basses sur pilotis, hangars et fermes, disperse sur toute l'emprise.
+    if (d.fn === "humide") {
+      const step = 6.4;
+      for (let lx = lminX; lx <= lmaxX; lx += step) {
+        for (let lz = lminZ; lz <= lmaxZ; lz += step) {
+          if (rng() > 0.72) continue;
+          const jx = lx + (rng() - 0.5) * step * 0.85;
+          const jz = lz + (rng() - 0.5) * step * 0.85;
+          const w = 2.6 + rng() * 2.8;
+          const dd = 2.6 + rng() * 2.8;
+          emit(jx, jz, w, dd, pickWeighted(KIND_WEIGHTS.humide, rng()));
+          // annexe accolee : appentis, remise
+          if (rng() < 0.34) {
+            const ox = (rng() < 0.5 ? -1 : 1) * (w * 0.5 + 1.4 + rng());
+            emit(jx + ox, jz + (rng() - 0.5) * 2, 1.8 + rng() * 1.6, 1.8 + rng() * 1.6, "slab");
+          }
+        }
+      }
+      continue;
+    }
+
     // — Decoupage en ilots puis en parcelles (BSP) —
     const block = style.block;
     const street = 2.2;
