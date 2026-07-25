@@ -1,0 +1,99 @@
+/* ————————————————————————————————————————————————————————————————
+   NEXUS 2049 — jetons de design
+   Direction : cartographie scientifique + systeme critique + editorial
+   brutaliste. Encre profonde, os (bone), tramage, une palette de signal
+   institutionnelle et desaturee. Aucun degrade neon.
+   ———————————————————————————————————————————————————————————————— */
+:root {
+  /* — Encre / surfaces — */
+  --ink-950: #06080a;
+  --ink-900: #090c0e;
+  --ink-850: #0c1013;
+  --ink-800: #111619;
+  --ink-750: #161c20;
+  --ink-700: #1c2429;
+  --ink-650: #242e33;
+
+  /* — Traits — */
+  --line: rgba(230, 226, 214, 0.12);
+  --line-soft: rgba(230, 226, 214, 0.07);
+  --line-strong: rgba(230, 226, 214, 0.26);
+  --grid: rgba(230, 226, 214, 0.045);
+
+  /* — Texte / os — */
+  --paper: #e9e5d9;
+  --paper-dim: #a7ada9;
+  --paper-faint: rgba(233, 229, 217, 0.52);
+  --paper-ghost: rgba(233, 229, 217, 0.3);
+
+  /* — Signaux (institutionnels, desatures) — */
+  --signal: #dd4b2a; /* alerte / vermillon */
+  --signal-dim: #a9401f;
+  --amber: #d6a13a; /* attention / energie */
+  --data: #66b1a6; /* teal — donnee */
+  --data-2: #8993cf; /* indigo — flux */
+  --good: #83a86a; /* vert — vivant */
+  --violet: #b07fb8; /* confiance */
+  --ice: #7fb0c9; /* mobilite */
+
+  /* — Roles indicateurs — */
+  --c-carbon: var(--signal);
+  --c-qol: var(--data);
+  --c-budget: var(--paper);
+  --c-energy: var(--amber);
+  --c-mobility: var(--ice);
+  --c-biodiversity: var(--good);
+  --c-trust: var(--violet);
+
+  /* — Focus — */
+  --focus: #f2c14e;
+  --focus-ring: 0 0 0 2px var(--ink-900), 0 0 0 4px var(--focus);
+
+  /* — Typo — */
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "JetBrains Mono",
+    "Roboto Mono", "Menlo", monospace;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", "Helvetica Neue",
+    Arial, sans-serif;
+
+  --fs-micro: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 15px;
+  --fs-lg: 19px;
+  --fs-xl: 26px;
+  --fs-2xl: 38px;
+  --fs-3xl: 58px;
+
+  --tracking-wide: 0.16em;
+  --tracking-wider: 0.24em;
+
+  /* — Espacement / rayon — */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --radius: 2px;
+  --radius-lg: 3px;
+
+  /* — Mouvement — */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 140ms;
+  --dur: 260ms;
+  --dur-slow: 520ms;
+
+  --z-hud: 40;
+  --z-overlay: 90;
+  --z-toast: 120;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
+  }
+}
