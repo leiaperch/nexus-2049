@@ -1198,12 +1198,21 @@ export function buildConstructionCranes(
     if (growth < 1.5) continue;
     const n = Math.min(4, Math.floor(growth / 2.5) + 1);
     const rng = mulberry32(d.id.length * 7919 + Math.round(growth * 10));
-    for (let i = 0; i < n; i++) {
-      const a = i * 2.399963;
-      const rr = 0.03 + 0.05 * rng();
-      const nx = d.center[0] + Math.cos(a) * rr;
-      const ny = d.center[1] + Math.sin(a) * rr * 0.8;
+    const xs = d.poly.map((p) => p[0]);
+    const ys = d.poly.map((p) => p[1]);
+    const minx = Math.min(...xs);
+    const maxx = Math.max(...xs);
+    const miny = Math.min(...ys);
+    const maxy = Math.max(...ys);
+    let placed = 0;
+    let guard = 0;
+    while (placed < n && guard < 200) {
+      guard++;
+      // chantiers repartis dans le quartier, pas en cercle autour du centre
+      const nx = minx + rng() * (maxx - minx);
+      const ny = miny + rng() * (maxy - miny);
       if (!pointInPoly(nx, ny, d.poly)) continue;
+      placed++;
       const [x, z] = toWorld(nx, ny);
       const H = 16 + rng() * 10;
       // mat + fleche + contrepoids, en jaune de chantier
@@ -1410,12 +1419,23 @@ export function treeMatrices(districts: DistrictState[]): {
   let seed = 99;
   for (const d of districts) {
     const rng = mulberry32(seed++ * 40503);
-    const count = Math.round((d.greenery / 100) * 52 + 3);
-    for (let i = 0; i < count; i++) {
-      const a = i * 2.399963 + rng() * 0.4;
-      const r = 0.02 + 0.08 * Math.sqrt(i / Math.max(1, count));
-      const nx = d.center[0] + Math.cos(a) * r;
-      const ny = d.center[1] + Math.sin(a) * r * 0.82;
+    // Semis reparti sur TOUTE l'emprise du quartier. Une dispersion en
+    // spirale autour du centroide formait un rond de verdure decale du
+    // quartier : la vegetation suit le territoire, pas un compas.
+    const xs = d.poly.map((p) => p[0]);
+    const ys = d.poly.map((p) => p[1]);
+    const minx = Math.min(...xs);
+    const maxx = Math.max(...xs);
+    const miny = Math.min(...ys);
+    const maxy = Math.max(...ys);
+    const area = (maxx - minx) * (maxy - miny);
+    const target = Math.round((d.greenery / 100) * area * 620) + 3;
+    let placed = 0;
+    let guard = 0;
+    while (placed < target && guard < target * 40) {
+      guard++;
+      const nx = minx + rng() * (maxx - minx);
+      const ny = miny + rng() * (maxy - miny);
       if (!pointInPoly(nx, ny, d.poly)) continue;
       const [wx, wz] = toWorld(nx, ny);
       const sc = 0.7 + rng() * 0.9;
@@ -1425,6 +1445,7 @@ export function treeMatrices(districts: DistrictState[]): {
       matrices.push(m.clone());
       const g = 0.32 + rng() * 0.24;
       colors.push(new THREE.Color(0.13 + rng() * 0.08, g, 0.15 + rng() * 0.06));
+      placed++;
     }
   }
   return { matrices, colors };
