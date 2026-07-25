@@ -718,6 +718,16 @@ const KIND_WEIGHTS: Record<DistrictState["fn"], [Kind, number][]> = {
 };
 
 /**
+ * Hauteur a laquelle ancrer l'etiquette d'un quartier : au-dessus de sa
+ * silhouette bâtie, pour qu'elle ne soit jamais enfouie dans les volumes.
+ */
+export function districtLabelHeight(d: DistrictState): number {
+  const st = FN_STYLE[d.fn];
+  const hBase = st.hMin + (st.hMax - st.hMin) * (d.density / 100);
+  return Math.min(st.hMax * 1.35, hBase * 1.8) + 7;
+}
+
+/**
  * Decoupe recursive d'un ilot en parcelles irregulieres (BSP).
  * Produit un parcellaire qui pave l'ilot sans recouvrement, avec des
  * tailles et proportions variees — la cle d'un tissu urbain credible.
@@ -818,54 +828,84 @@ export function buildBuildings(
       const [wx, wz] = toWorldL(lx, lz);
       return pointInPoly(wx / WORLD_W + 0.5, wz / WORLD_D + 0.5, d.poly);
     };
-    /** l'emprise doit tenir dans le quartier : centre + 3 coins au moins. */
+    /**
+     * L'emprise entiere doit tenir dans le quartier. Strict : sans cela,
+     * deux quartiers voisins (dont les trames sont orientees differemment)
+     * laissent deborder leurs batiments de part et d'autre de la limite
+     * commune, et les volumes s'interpenetrent.
+     */
     const footprintInside = (lcx: number, lcz: number, ax: number, az: number) => {
-      if (!insidePt(lcx, lcz)) return false;
-      const hx = ax / 2 + 0.2;
-      const hz = az / 2 + 0.2;
-      let n = 0;
-      if (insidePt(lcx - hx, lcz - hz)) n++;
-      if (insidePt(lcx + hx, lcz - hz)) n++;
-      if (insidePt(lcx + hx, lcz + hz)) n++;
-      if (insidePt(lcx - hx, lcz + hz)) n++;
-      return n >= 3;
+      const hx = ax / 2 + 0.3;
+      const hz = az / 2 + 0.3;
+      return (
+        insidePt(lcx, lcz) &&
+        insidePt(lcx - hx, lcz - hz) &&
+        insidePt(lcx + hx, lcz - hz) &&
+        insidePt(lcx + hx, lcz + hz) &&
+        insidePt(lcx - hx, lcz + hz)
+      );
     };
     const dTint = tint[d.id] ?? new THREE.Color(0.6, 0.6, 0.6);
 
     // — Palette : matiere + teinte de donnee —
+    /**
+     * Couleur d'un batiment. La teinte de la couche de donnee donne la
+     * TEINTE commune au quartier, mais la VALEUR varie fortement d'un
+     * batiment a l'autre (age, entretien, materiau) : sans cet ecart de
+     * luminosite, tous les volumes d'un meme quartier se confondent.
+     */
     const colorFor = (bucket: Bucket) => {
-      const shade = 0.84 + rng() * 0.3;
       let mr: number, mg: number, mb: number;
       if (bucket === "glass") {
-        mr = 0.42; mg = 0.5; mb = 0.6;
+        mr = 0.46; mg = 0.56; mb = 0.68;
       } else if (bucket === "brick") {
-        mr = 0.66; mg = 0.42; mb = 0.35;
+        mr = 0.72; mg = 0.4; mb = 0.31;
       } else if (bucket === "industrial") {
-        mr = 0.54; mg = 0.56; mb = 0.55;
+        mr = 0.56; mg = 0.58; mb = 0.56;
       } else if (bucket === "dark") {
-        mr = 0.4; mg = 0.41; mb = 0.44;
+        mr = 0.34; mg = 0.35; mb = 0.39;
       } else {
-        mr = 0.7; mg = 0.68; mb = 0.63;
+        mr = 0.78; mg = 0.75; mb = 0.68;
       }
-      const k = 0.85;
-      const gain = 1.5;
-      return [
-        (mr * (1 - k) + dTint.r * k) * shade * gain,
-        (mg * (1 - k) + dTint.g * k) * shade * gain,
-        (mb * (1 - k) + dTint.b * k) * shade * gain,
-      ] as [number, number, number];
+      // melange modere : la matiere reste lisible sous la donnee
+      const k = 0.62;
+      let r = mr * (1 - k) + dTint.r * k;
+      let g = mg * (1 - k) + dTint.g * k;
+      let b = mb * (1 - k) + dTint.b * k;
+      // ecart de luminosite par batiment (large) + quelques volumes tres sombres
+      const v = rng();
+      const shade = v < 0.18 ? 0.34 + rng() * 0.22 : 0.72 + rng() * 0.95;
+      // derive chromatique legere pour eviter l'aplat
+      const warm = (rng() - 0.5) * 0.14;
+      const gain = 1.35;
+      r = (r + warm) * shade * gain;
+      g = g * shade * gain;
+      b = (b - warm * 0.6) * shade * gain;
+      return [Math.max(0, r), Math.max(0, g), Math.max(0, b)] as [number, number, number];
     };
 
     // — Emission d'un batiment selon son archetype —
     const emit = (
       lcx: number,
       lcz: number,
-      sx: number,
-      sz: number,
+      sx0: number,
+      sz0: number,
       kind: Kind,
     ) => {
-      if (sx < 2 || sz < 2) return;
-      if (!footprintInside(lcx, lcz, sx, sz)) return;
+      if (sx0 < 2 || sz0 < 2) return;
+      // Parcelle de bord : plutot que de la rejeter (ce qui creuse des
+      // vides le long des limites), on retrecit l'emprise jusqu'a ce
+      // qu'elle tienne. Les bords portent donc du bâti plus menu.
+      let sx = 0;
+      let sz = 0;
+      for (const f of [1, 0.8, 0.62, 0.46, 0.34]) {
+        if (footprintInside(lcx, lcz, sx0 * f, sz0 * f)) {
+          sx = sx0 * f;
+          sz = sz0 * f;
+          break;
+        }
+      }
+      if (sx < 1.6 || sz < 1.6) return;
       const [wx, wz] = toWorldL(lcx, lcz);
       const bucket = pickWeighted(style.buckets, rng());
       const s = sinks[bucket];
@@ -883,9 +923,11 @@ export function buildBuildings(
           // ilot ferme : quatre ailes autour d'une cour
           const wgt = Math.max(1.8, Math.min(sx, sz) * 0.3);
           const hh = Math.max(3, h * 0.62);
-          addBox(s, wx, 0, wz, sx, hh, wgt, cr, cg, cb, 0.24, theta, uOff, vOff);
-          const [bx1, bz1] = [lcx, lcz + (sz - wgt) / 2];
-          const [w1x, w1z] = toWorldL(bx1, bz1);
+          // aile -Z
+          const [w0x, w0z] = toWorldL(lcx, lcz - (sz - wgt) / 2);
+          addBox(s, w0x, 0, w0z, sx, hh, wgt, cr, cg, cb, 0.24, theta, uOff, vOff);
+          // aile +Z
+          const [w1x, w1z] = toWorldL(lcx, lcz + (sz - wgt) / 2);
           addBox(s, w1x, 0, w1z, sx, hh * (0.85 + rng() * 0.3), wgt, cr, cg, cb, 0.24, theta, uOff + 1, vOff);
           const [w2x, w2z] = toWorldL(lcx - (sx - wgt) / 2, lcz);
           addBox(s, w2x, 0, w2z, wgt, hh * (0.85 + rng() * 0.3), sz, cr, cg, cb, 0.24, theta, uOff + 2, vOff);
@@ -965,10 +1007,19 @@ export function buildBuildings(
           break;
         }
         case "ell": {
-          const a = 0.52 + rng() * 0.18;
-          addBox(s, wx, 0, wz, sx, h, sz * a, cr, cg, cb, 0.24, theta, uOff, vOff);
-          const [ex, ez] = toWorldL(lcx - sx * (0.5 - a * 0.5), lcz + sz * 0.2);
-          addBox(s, ex, 0, ez, sx * a, h * (0.66 + rng() * 0.3), sz, cr, cg, cb, 0.24, theta, uOff + 1, vOff);
+          // deux corps en equerre, strictement contenus dans la parcelle
+          const a = 0.5 + rng() * 0.16; // part du corps transversal
+          const wingZ = sz * a;
+          const wingX = sx * a;
+          // aile le long de X, plaquee au bord -Z
+          const [ax1, az1] = toWorldL(lcx, lcz - (sz - wingZ) / 2);
+          addBox(s, ax1, 0, az1, sx, h, wingZ, cr, cg, cb, 0.24, theta, uOff, vOff);
+          // aile le long de Z, plaquee au bord -X
+          const [ax2, az2] = toWorldL(lcx - (sx - wingX) / 2, lcz);
+          addBox(
+            s, ax2, 0, az2, wingX, h * (0.62 + rng() * 0.34), sz,
+            cr, cg, cb, 0.24, theta, uOff + 1, vOff,
+          );
           break;
         }
         default: {
@@ -995,7 +1046,7 @@ export function buildBuildings(
 
     // — Decoupage en ilots puis en parcelles (BSP) —
     const block = style.block;
-    const street = 2.6;
+    const street = 2.2;
     const pitch = block + street;
     const minLot = LOT_MIN[d.fn];
 

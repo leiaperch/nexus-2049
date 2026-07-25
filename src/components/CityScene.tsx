@@ -14,6 +14,7 @@ import {
   buildRoads,
   buildStreetLights,
   districtGroundGeometry,
+  districtLabelHeight,
   FLOW_ROUTES,
   makeBuildingTextures,
   makeConcreteNormal,
@@ -429,10 +430,16 @@ export function CityScene() {
         const btn = btnRefs.current.get(d.id);
         if (!btn) continue;
         const [x, z] = toWorld(d.center[0], d.center[1]);
-        proj.set(x, 7, z).project(ctx.camera);
-        const sx = (proj.x * 0.5 + 0.5) * w;
-        const sy = (-proj.y * 0.5 + 0.5) * h;
-        const visible = proj.z < 1;
+        proj.set(x, districtLabelHeight(d), z).project(ctx.camera);
+        let sx = (proj.x * 0.5 + 0.5) * w;
+        let sy = (-proj.y * 0.5 + 0.5) * h;
+        // hors champ derriere la camera, ou trop loin du cadre : on masque
+        const visible =
+          proj.z < 1 && sx > -60 && sx < w + 60 && sy > -60 && sy < h + 60;
+        // sinon on confine l'etiquette au cadre de la maquette pour
+        // qu'elle ne chevauche jamais l'interface autour
+        sx = Math.min(Math.max(sx, 52), Math.max(52, w - 52));
+        sy = Math.min(Math.max(sy, 16), Math.max(16, h - 16));
         btn.style.transform = `translate(-50%, -50%) translate(${sx}px, ${sy}px)`;
         btn.style.opacity = visible ? "1" : "0";
         btn.style.pointerEvents = visible ? "auto" : "none";

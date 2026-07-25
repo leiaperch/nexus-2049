@@ -386,17 +386,33 @@
   will-change: transform;
 }
 .district-hit-label {
+  position: relative;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(233, 229, 217, 0.9);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-  padding: 3px 6px;
-  background: rgba(9, 12, 14, 0.45);
-  border: 1px solid transparent;
+  color: var(--paper);
+  padding: 3px 7px;
+  background: rgba(9, 12, 14, 0.82);
+  border: 1px solid var(--line);
+  border-bottom-color: var(--line-strong);
   pointer-events: none;
   white-space: nowrap;
+  backdrop-filter: blur(2px);
+}
+/* tige de reperage vers le sol du quartier */
+.district-hit-label::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 1px;
+  height: 14px;
+  background: linear-gradient(
+    to bottom,
+    var(--line-strong),
+    transparent
+  );
 }
 .district-hit-3d:hover .district-hit-label,
 .district-hit-3d:focus-visible .district-hit-label {
