@@ -1615,10 +1615,13 @@ export function districtRingGeometry(
 
 export function districtGroundGeometry(poly: [number, number][]): THREE.BufferGeometry {
   const shape = new THREE.Shape();
+  // Le plan de la forme est XY ; la rotation qui suit envoie (x, s) sur
+  // (x, 0, -s). On inverse donc s en amont, sans quoi le socle se pose en
+  // miroir de ses propres batiments et de son anneau.
   districtOutline(poly).forEach(([nx, ny], i) => {
     const [x, z] = toWorld(nx, ny);
-    if (i === 0) shape.moveTo(x, z);
-    else shape.lineTo(x, z);
+    if (i === 0) shape.moveTo(x, -z);
+    else shape.lineTo(x, -z);
   });
   const geo = new THREE.ShapeGeometry(shape);
   geo.rotateX(-Math.PI / 2);

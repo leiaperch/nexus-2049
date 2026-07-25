@@ -598,6 +598,30 @@ export function CityScene() {
         eoliennes: ctx.turbines.length,
         flux: ctx.flows.length,
       });
+      (window as any).__nexusProject = (x: number, y: number, z: number) => {
+        const v = new THREE.Vector3(x, y, z).project(ctx.camera);
+        const el = ctx.renderer.domElement;
+        const r = el.getBoundingClientRect();
+        return {
+          x: r.left + (v.x * 0.5 + 0.5) * r.width,
+          y: r.top + (-v.y * 0.5 + 0.5) * r.height,
+        };
+      };
+      // Controle d'alignement : le socle et l'anneau d'un meme quartier
+      // doivent partager le meme centre.
+      (window as any).__nexusAlign = () =>
+        ctx.grounds.map((g) => {
+          g.mesh.geometry.computeBoundingBox();
+          g.border.geometry.computeBoundingBox();
+          const a = g.mesh.geometry.boundingBox!.getCenter(new THREE.Vector3());
+          const b = g.border.geometry.boundingBox!.getCenter(new THREE.Vector3());
+          return {
+            id: g.id,
+            socle: [Math.round(a.x), Math.round(a.z)],
+            anneau: [Math.round(b.x), Math.round(b.z)],
+            ecart: Math.round(Math.hypot(a.x - b.x, a.z - b.z)),
+          };
+        });
     }
 
     const ro = new ResizeObserver(() => {
