@@ -30,6 +30,10 @@ export interface AppState {
   reducedMotion: boolean;
   /** metrique cartographiee sur la ville. */
   mapMetric: "greenery" | "pollution" | "density" | "energyUse" | "satisfaction";
+  /** modale des dossiers de l'annee. */
+  dossiersOpen: boolean;
+  /** annee dont la modale a ete ecartee manuellement (pour inspecter la ville). */
+  dossiersDismissed: number | null;
   /** bilan de fin de mandat (2069). */
   epilogueOpen: boolean;
   /** le bilan a-t-il deja ete presente pour cette trajectoire ? */
@@ -58,6 +62,8 @@ let state: AppState = {
   soundOn: false,
   reducedMotion: !!prefersReduced,
   mapMetric: "greenery",
+  dossiersOpen: false,
+  dossiersDismissed: null,
   epilogueOpen: false,
   epilogueSeen: false,
   toast: null,
@@ -110,12 +116,17 @@ export const actions = {
       return false;
     }
     pushHistory();
-    const enacted = [
-      ...state.enacted,
-      { decisionId, year: state.currentYear },
-    ];
-    set({ enacted, projection: reproject(enacted) });
-    toast(`${decision.ref} promulguee en ${state.currentYear}`, "ok");
+    const year = state.currentYear;
+    const enacted = [...state.enacted, { decisionId, year }];
+    set({ enacted, projection: reproject(enacted), dossiersOpen: false });
+    toast(`${decision.ref} promulguee en ${year}`, "ok");
+    // L'arbitrage rendu, le temps repart : on avance d'une annee pour que
+    // le joueur voie l'effet, puis les dossiers suivants se presentent.
+    if (year < END_YEAR) {
+      window.setTimeout(() => {
+        if (getState().currentYear === year) actions.setYear(year + 1);
+      }, 620);
+    }
     return true;
   },
 
@@ -248,6 +259,13 @@ export const actions = {
   setMapMetric(m: AppState["mapMetric"]) {
     set({ mapMetric: m });
   },
+  openDossiers() {
+    set({ dossiersOpen: true, dossiersDismissed: null, playing: false });
+  },
+  /** Ecarter la modale pour inspecter la ville sans arbitrer. */
+  dismissDossiers() {
+    set({ dossiersOpen: false, dossiersDismissed: state.currentYear });
+  },
   openEpilogue() {
     set({ epilogueOpen: true, epilogueSeen: true, playing: false });
   },
@@ -265,6 +283,8 @@ export const actions = {
       playing: false,
       epilogueOpen: false,
       epilogueSeen: false,
+      dossiersOpen: false,
+      dossiersDismissed: null,
     });
     toast("Trajectoire reinitialisee", "info");
   },

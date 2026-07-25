@@ -46,6 +46,24 @@ export default function App() {
     else sfx.ui();
   }, [state.toast]);
 
+  // Les dossiers de l'annee se presentent d'eux-memes tant qu'aucun
+  // arbitrage n'a ete rendu — sauf si le joueur les a ecartes pour
+  // examiner la ville, ou si l'introduction est encore a l'ecran.
+  useEffect(() => {
+    if (intro || state.epilogueOpen || state.dossiersOpen) return;
+    if (!actions.blocked()) return;
+    if (state.dossiersDismissed === state.currentYear) return;
+    const t = window.setTimeout(() => actions.openDossiers(), 420);
+    return () => window.clearTimeout(t);
+  }, [
+    intro,
+    state.currentYear,
+    state.enacted,
+    state.epilogueOpen,
+    state.dossiersOpen,
+    state.dossiersDismissed,
+  ]);
+
   const openDecisions = useCallback(() => {
     setPaletteOpen(false);
     setDecisionsOpen(true);
@@ -178,7 +196,6 @@ export default function App() {
                 <DistrictInspector />
               </div>
               <div className="stage-rail">
-                <YearDossiers />
                 <IndicatorPanel />
                 <EventFeed />
               </div>
@@ -206,6 +223,12 @@ export default function App() {
       )}
 
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
+
+      <AnimatePresence>
+        {state.dossiersOpen && !state.epilogueOpen && (
+          <YearDossiers key="dossiers" />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {state.epilogueOpen && <Epilogue key="epilogue" />}

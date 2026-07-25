@@ -108,8 +108,14 @@ export function TopBar({ onOpenDecisions, onOpenPalette, onOpenHelp }: Props) {
         <button className="btn btn-icon" onClick={onOpenHelp} aria-label="Aide et raccourcis" title="Aide (?)">
           ?
         </button>
-        <button className="btn tb-decide" onClick={onOpenDecisions}>
-          Deliberer
+        <button className="btn" onClick={onOpenDecisions}>
+          Registre
+        </button>
+        <button
+          className={`btn tb-decide ${actions.blocked() ? "is-urgent" : ""}`}
+          onClick={() => actions.openDossiers()}
+        >
+          Dossiers {state.currentYear}
         </button>
       </nav>
     </header>

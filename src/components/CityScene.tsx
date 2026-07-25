@@ -10,8 +10,12 @@ import { fmtPop } from "../lib/format";
 import {
   buildBuildings,
   BUILDING_BUCKETS,
+  buildConstructionCranes,
+  buildGreenRoofs,
   buildPortCranes,
   buildRoads,
+  buildRooftopSolar,
+  smogGeometry,
   buildStreetLights,
   districtGroundGeometry,
   districtLabelHeight,
@@ -56,6 +60,10 @@ interface SceneCtx {
   grounds: GroundEntry[];
   buildingMats: Record<Bucket, THREE.MeshStandardMaterial>;
   buildingMeshes: THREE.Mesh[];
+  solarMat: THREE.MeshStandardMaterial;
+  greenRoofMat: THREE.MeshStandardMaterial;
+  craneMat: THREE.MeshStandardMaterial;
+  smog: { id: string; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }[];
   treeMesh: THREE.InstancedMesh | null;
   treeGeo: THREE.BufferGeometry;
   treeMat: THREE.MeshStandardMaterial;
@@ -258,6 +266,28 @@ export function CityScene() {
     craneMesh.castShadow = true;
     scene.add(craneMesh);
 
+    // Voile de pollution : une nappe par quartier, au-dessus du bâti.
+    const smogLayers: {
+      id: string;
+      mesh: THREE.Mesh;
+      mat: THREE.MeshBasicMaterial;
+    }[] = [];
+    for (const d of ys0.districts) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xc4643a,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      const mesh = new THREE.Mesh(smogGeometry(d.poly), mat);
+      mesh.position.y = 18;
+      mesh.visible = false;
+      scene.add(mesh);
+      smogLayers.push({ id: d.id, mesh, mat });
+    }
+
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 5, 4);
     controls.enableDamping = true;
@@ -278,6 +308,23 @@ export function CityScene() {
       grounds,
       buildingMats,
       buildingMeshes: [],
+      solarMat: new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.22,
+        metalness: 0.65,
+        envMapIntensity: 1.1,
+      }),
+      greenRoofMat: new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.95,
+        metalness: 0,
+      }),
+      craneMat: new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.6,
+        metalness: 0.3,
+      }),
+      smog: smogLayers,
       treeMesh: null,
       treeGeo,
       treeMat,
@@ -303,7 +350,7 @@ export function CityScene() {
       const tint: Record<string, THREE.Color> = {};
       for (const d of yearState.districts)
         tint[d.id] = new THREE.Color(rampColor(metric, metricValue(d, metric)));
-      const geoms = buildBuildings(yearState.districts, tint);
+      const { geoms, roofs } = buildBuildings(yearState.districts, tint);
       for (const b of BUILDING_BUCKETS) {
         const g = geoms[b];
         if (g.attributes.position.count === 0) {
@@ -315,6 +362,42 @@ export function CityScene() {
         m.receiveShadow = true;
         scene.add(m);
         ctx.buildingMeshes.push(m);
+      }
+
+      // — Calques de transformation pilotes par la simulation —
+      const st = getState();
+      const ind = st.projection.byYear[st.currentYear].indicators;
+      const baseline = st.projection.timeline[0].districts;
+      const greeneryBy: Record<string, number> = {};
+      for (const d of yearState.districts) greeneryBy[d.id] = d.greenery;
+
+      const layers: [THREE.BufferGeometry, THREE.Material, boolean][] = [
+        [buildRooftopSolar(roofs, ind.energy), ctx.solarMat, false],
+        [buildGreenRoofs(roofs, greeneryBy), ctx.greenRoofMat, false],
+        [
+          buildConstructionCranes(yearState.districts, baseline),
+          ctx.craneMat,
+          true,
+        ],
+      ];
+      for (const [g, mat, shadow] of layers) {
+        if (g.attributes.position.count === 0) {
+          g.dispose();
+          continue;
+        }
+        const m = new THREE.Mesh(g, mat);
+        m.castShadow = shadow;
+        scene.add(m);
+        ctx.buildingMeshes.push(m);
+      }
+
+      // voile de pollution : opacite suivant la pollution du quartier
+      for (const sm of ctx.smog) {
+        const d = yearState.districts.find((x) => x.id === sm.id);
+        const p = d ? Math.max(0, (d.pollution - 42) / 58) : 0;
+        sm.mesh.visible = p > 0.02;
+        sm.mat.opacity = p * 0.3;
+        sm.mesh.position.y = 16 + p * 10;
       }
 
       if (ctx.treeMesh) {
@@ -391,10 +474,15 @@ export function CityScene() {
       const s = getState();
       const ys = s.projection.byYear[s.currentYear];
       const t = clock.getElapsedTime();
-      const sig = `${s.currentYear}|${s.mapMetric}|${s.projection.active.join(",")}`;
+      // Seules les politiques deja promulguees a l'annee courante sont
+      // visibles : une ligne votee en 2060 n'existe pas en 2049.
+      const activeNow = s.enacted
+        .filter((e) => e.year <= s.currentYear)
+        .map((e) => e.decisionId);
+      const sig = `${s.currentYear}|${s.mapMetric}|${activeNow.join(",")}`;
       if (sig !== ctx.signature) {
         ctx.signature = sig;
-        rebuild(ys, s.projection.active);
+        rebuild(ys, activeNow);
       }
       for (const g of ctx.grounds) {
         const d = ys.districts.find((x) => x.id === g.id)!;
@@ -478,9 +566,21 @@ export function CityScene() {
     };
     ctx.raf = requestAnimationFrame(loop);
 
-    if (import.meta.env.DEV) (window as any).__nexusRender = (n = 1) => {
-      for (let i = 0; i < n; i++) frame(true);
-    };
+    if (import.meta.env.DEV) {
+      (window as any).__nexusRender = (n = 1) => {
+        for (let i = 0; i < n; i++) frame(true);
+      };
+      (window as any).__nexusStats = () => ({
+        objets: ctx.scene.children.length,
+        maillesBati: ctx.buildingMeshes.length,
+        triangles: ctx.renderer.info.render.triangles,
+        appels: ctx.renderer.info.render.calls,
+        smogVisible: ctx.smog.filter((s) => s.mesh.visible).length,
+        arbres: ctx.treeMesh?.count ?? 0,
+        eoliennes: ctx.turbines.length,
+        flux: ctx.flows.length,
+      });
+    }
 
     const ro = new ResizeObserver(() => {
       const w = mount.clientWidth;

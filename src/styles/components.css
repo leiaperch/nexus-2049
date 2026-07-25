@@ -206,13 +206,171 @@
 .stage-rail {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 1px;
   background: var(--line-soft);
   overflow: hidden;
 }
 
-/* — Dossiers de l'annee — */
+/* — Dossiers de l'annee : modale — */
+.dossiers-scrim {
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+}
+.dossiers-modal {
+  width: min(1000px, 100%);
+  max-height: calc(100dvh - var(--sp-6));
+  overflow-y: auto;
+  background: var(--ink-850);
+  border: 1px solid var(--line-strong);
+  border-top: 2px solid var(--focus);
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.75);
+  padding: var(--sp-5);
+}
+.dm-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.dm-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.dm-year {
+  font-size: var(--fs-3xl);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.9;
+}
+.dm-titles {
+  display: flex;
+  flex-direction: column;
+}
+.dm-h2 {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.dm-lock {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--focus);
+  border: 1px solid var(--focus);
+  padding: 4px 7px;
+  white-space: nowrap;
+  animation: lockpulse 2.4s var(--ease-in-out) infinite;
+}
+.dm-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-4) 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
+  gap: var(--sp-3);
+}
+.dm-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  background: var(--ink-900);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--line-strong);
+  transition: border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.dm-card[data-track="energie"] {
+  border-top-color: var(--amber);
+}
+.dm-card[data-track="mobilite"] {
+  border-top-color: var(--ice);
+}
+.dm-card[data-track="climat"] {
+  border-top-color: var(--good);
+}
+.dm-card:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-2px);
+}
+.dm-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dm-card-title {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+.dm-card-line {
+  font-size: var(--fs-sm);
+  color: var(--paper-dim);
+  line-height: 1.45;
+}
+.dm-cost {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line-soft);
+}
+.dm-cost-num {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.dm-rec {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+}
+.dm-rec.good {
+  color: var(--good);
+}
+.dm-rec.bad {
+  color: var(--signal);
+}
+.dm-go {
+  margin-top: auto;
+  justify-content: center;
+  min-height: 40px;
+}
+.dm-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.dm-hint {
+  text-align: right;
+}
+.tb-decide.is-urgent {
+  animation: lockpulse 2.4s var(--ease-in-out) infinite;
+}
+
+@media (max-width: 720px) {
+  .dossiers-modal {
+    padding: var(--sp-4) var(--sp-3);
+  }
+  .dm-year {
+    font-size: var(--fs-2xl);
+  }
+  .dm-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* — Dossiers de l'annee (ancien panneau de rail) — */
 .dossiers {
   background: var(--ink-850);
   border: 1px solid var(--line);

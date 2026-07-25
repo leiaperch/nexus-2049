@@ -13,9 +13,10 @@ en **3D temps réel** (three.js).
 
 Après le Grand Décrochage climatique de 2041, Méridienne confie sa conduite à
 NEXUS, un système d'exploitation urbain. L'utilisateur n'observe pas un tableau
-de bord : il **arbitre**. Chaque année, NEXUS soumet trois dossiers tirés d'un
-catalogue de 48 politiques ; **il faut en trancher au moins un pour que le temps
-avance** — on ne peut pas dérouler la projection sans gouverner. Chaque décision
+de bord : il **arbitre**. Chaque année, une modale présente trois dossiers tirés
+d'un catalogue de 48 politiques ; **trancher relance le temps**, qui avance
+alors d'une année et soumet les dossiers suivants — on ne peut pas dérouler la
+projection sans gouverner. Chaque décision
 applique un effet immédiat annoncé, puis révèle des conséquences différées,
 souvent indésirables, jamais annoncées à l'avance. En 2069, la chambre
 régionale des comptes rend son **bilan de mandat**. Trois couches synchronisées composent
@@ -55,12 +56,14 @@ App                          # layout, clavier global, horloge, easter egg
 ├─ Intro                     # séquence d'ouverture < 15 s, désactivable
 ├─ TopBar                    # wordmark, indice de santé urbaine, mode, undo/redo
 ├─ stage (mode = ops)
-│  ├─ CityScene              # three.js : bâtiments extrudés (hauteur = densité),
-│  │  │                        canopée, fleuve, flux animés, IBL + ombres.
+│  ├─ CityScene              # three.js : parcellaire BSP, 10 archétypes bâtis,
+│  │  │                        panneaux solaires et toitures végétalisées selon
+│  │  │                        les indicateurs, grues sur les quartiers qui se
+│  │  │                        densifient, voile de pollution, lignes de
+│  │  │                        transport votées, éoliennes, IBL + ombres.
 │  │  │                        Quartiers = boutons focusables projetés en 2D.
 │  │  └─ DistrictInspector   # panneau quartier (avant/après vs 2049)
 │  └─ stage-rail
-│     ├─ YearDossiers        # dossiers de l'année (verrou tant qu'aucun arbitrage)
 │     ├─ IndicatorPanel      # 7 indicateurs : jauge segmentée + Sparkline
 │     └─ EventFeed           # dépêches narratives NEXUS (aria-live)
 ├─ stage (mode = archive)
@@ -70,6 +73,7 @@ App                          # layout, clavier global, horloge, easter egg
 │     └─ CompareBlock        # comparaison temporelle A → B
 ├─ Timeline                  # scrubber 2049-2069, lecture, vitesse, marqueurs
 ├─ DecisionCenter            # drawer : 3 axes, cartes à découverte progressive
+├─ YearDossiers              # modale des dossiers de l'année (auto, ⇥ différable)
 ├─ Epilogue                  # bilan de mandat en 2069 : verdict, 2049→2069,
 │                             arbitrages par axe, faits marquants, rejouer
 ├─ CommandPalette            # ⌘/Ctrl+K

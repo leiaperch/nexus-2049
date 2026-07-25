@@ -770,11 +770,23 @@ function splitLot(
  * subdivise en parcelles irregulieres portant un archetype distinct.
  * Renvoie une geometrie par matiere (fusion).
  */
+/** Toiture plate exploitable (solaire, vegetalisation). */
+export interface RoofAnchor {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+  d: number;
+  ry: number;
+  district: string;
+}
+
 export function buildBuildings(
   districts: DistrictState[],
   /** teinte de donnee par quartier (rampe de la couche active). */
   tint: Record<string, THREE.Color>,
-): Record<Bucket, THREE.BufferGeometry> {
+): { geoms: Record<Bucket, THREE.BufferGeometry>; roofs: RoofAnchor[] } {
+  const roofs: RoofAnchor[] = [];
   const sinks: Record<Bucket, Sink> = {
     concrete: newSink(),
     glass: newSink(),
@@ -923,6 +935,7 @@ export function buildBuildings(
           // ilot ferme : quatre ailes autour d'une cour
           const wgt = Math.max(1.8, Math.min(sx, sz) * 0.3);
           const hh = Math.max(3, h * 0.62);
+          roofs.push({ x: wx, y: hh, z: wz, w: sx, d: wgt, ry: theta, district: d.id });
           // aile -Z
           const [w0x, w0z] = toWorldL(lcx, lcz - (sz - wgt) / 2);
           addBox(s, w0x, 0, w0z, sx, hh, wgt, cr, cg, cb, 0.24, theta, uOff, vOff);
@@ -978,6 +991,7 @@ export function buildBuildings(
           // halle industrielle : bas, longue, toiture en sheds
           const hh = Math.max(2.5, Math.min(h * 0.45, 7));
           addBox(s, wx, 0, wz, sx, hh, sz, cr, cg, cb, 0.24, theta, uOff, vOff);
+          roofs.push({ x: wx, y: hh, z: wz, w: sx * 0.8, d: sz * 0.8, ry: theta, district: d.id });
           const n = Math.max(2, Math.floor(sx / 3));
           for (let i = 0; i < n; i++) {
             const ox = -sx / 2 + (i + 0.5) * (sx / n);
@@ -1025,6 +1039,8 @@ export function buildBuildings(
         default: {
           // barre simple, avec edicule occasionnel
           addBox(s, wx, 0, wz, sx, h, sz, cr, cg, cb, 0.24, theta, uOff, vOff);
+          // toiture plate : support possible de panneaux ou de vegetalisation
+          roofs.push({ x: wx, y: h, z: wz, w: sx, d: sz, ry: theta, district: d.id });
           if (rng() > 0.55)
             addBox(
               s,
@@ -1092,7 +1108,7 @@ export function buildBuildings(
     }
   }
 
-  const out = {} as Record<Bucket, THREE.BufferGeometry>;
+  const geoms = {} as Record<Bucket, THREE.BufferGeometry>;
   for (const b of BUILDING_BUCKETS) {
     const s = sinks[b];
     const g = new THREE.BufferGeometry();
@@ -1100,9 +1116,112 @@ export function buildBuildings(
     g.setAttribute("normal", new THREE.Float32BufferAttribute(s.nor, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(s.uv, 2));
     g.setAttribute("color", new THREE.Float32BufferAttribute(s.col, 3));
-    out[b] = g;
+    geoms[b] = g;
   }
-  return out;
+  return { geoms, roofs };
+}
+
+// —————————————————————————— Transformation visible ——————————————————————————
+// La ville doit rendre compte des politiques votees, pas seulement les
+// indicateurs. Ces calques se reconstruisent a chaque annee.
+
+/**
+ * Panneaux solaires en toiture. La couverture suit la part d'energie
+ * decarbonee : plus le mix se decarbone, plus les toits se couvrent.
+ */
+export function buildRooftopSolar(
+  roofs: RoofAnchor[],
+  energyPct: number,
+): THREE.BufferGeometry {
+  const s = newSink();
+  const cover = Math.max(0, (energyPct - 30) / 70); // rien avant 30 %
+  const rng = mulberry32(1337);
+  for (const r of roofs) {
+    if (rng() > cover * 0.85) continue;
+    if (r.w < 2.4 || r.d < 2.4) continue;
+    const cols = Math.max(1, Math.floor(r.w / 1.5));
+    const rows = Math.max(1, Math.floor(r.d / 1.5));
+    const co = Math.cos(r.ry);
+    const si = Math.sin(r.ry);
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < rows; j++) {
+        if (rng() > 0.78) continue;
+        const lx = -r.w / 2 + (i + 0.5) * (r.w / cols);
+        const lz = -r.d / 2 + (j + 0.5) * (r.d / rows);
+        const px = r.x + lx * co - lz * si;
+        const pz = r.z + lx * si + lz * co;
+        addBox(s, px, r.y + 0.05, pz, 1.05, 0.16, 0.72, 0.1, 0.14, 0.26, 0.5, r.ry);
+      }
+    }
+  }
+  return sinkToGeometryBasic(s);
+}
+
+/**
+ * Toitures vegetalisees. Suit la couverture vegetale du quartier :
+ * les programmes de canopee verdissent aussi les toits.
+ */
+export function buildGreenRoofs(
+  roofs: RoofAnchor[],
+  greeneryByDistrict: Record<string, number>,
+): THREE.BufferGeometry {
+  const s = newSink();
+  const rng = mulberry32(4242);
+  for (const r of roofs) {
+    const g = (greeneryByDistrict[r.district] ?? 0) / 100;
+    const cover = Math.max(0, (g - 0.25) / 0.75);
+    if (rng() > cover * 0.8) continue;
+    if (r.w < 2 || r.d < 2) continue;
+    const tone = 0.42 + rng() * 0.3;
+    addBox(
+      s, r.x, r.y + 0.04, r.z, r.w * 0.86, 0.12, r.d * 0.86,
+      0.16 * tone, 0.5 * tone, 0.2 * tone, 0.4, r.ry,
+    );
+  }
+  return sinkToGeometryBasic(s);
+}
+
+/**
+ * Grues de chantier : apparaissent dans les quartiers dont la densite a
+ * progresse depuis 2049 — la densification devient visible.
+ */
+export function buildConstructionCranes(
+  districts: DistrictState[],
+  baseline: DistrictState[],
+): THREE.BufferGeometry {
+  const s = newSink();
+  const base = Object.fromEntries(baseline.map((d) => [d.id, d]));
+  for (const d of districts) {
+    const b = base[d.id];
+    if (!b) continue;
+    const growth = d.density - b.density;
+    if (growth < 1.5) continue;
+    const n = Math.min(4, Math.floor(growth / 2.5) + 1);
+    const rng = mulberry32(d.id.length * 7919 + Math.round(growth * 10));
+    for (let i = 0; i < n; i++) {
+      const a = i * 2.399963;
+      const rr = 0.03 + 0.05 * rng();
+      const nx = d.center[0] + Math.cos(a) * rr;
+      const ny = d.center[1] + Math.sin(a) * rr * 0.8;
+      if (!pointInPoly(nx, ny, d.poly)) continue;
+      const [x, z] = toWorld(nx, ny);
+      const H = 16 + rng() * 10;
+      // mat + fleche + contrepoids, en jaune de chantier
+      addBox(s, x, 0, z, 0.5, H, 0.5, 0.85, 0.62, 0.14);
+      addBox(s, x + 4, H, z, 11, 0.42, 0.42, 0.85, 0.62, 0.14);
+      addBox(s, x - 2.4, H, z, 3.2, 0.5, 0.5, 0.5, 0.5, 0.52);
+    }
+  }
+  return sinkToGeometryBasic(s);
+}
+
+/**
+ * Voile de pollution au-dessus des quartiers les plus emetteurs.
+ * Se dissipe a mesure que la pollution locale recule.
+ */
+export function smogGeometry(poly: [number, number][]): THREE.BufferGeometry {
+  const geo = districtGroundGeometry(poly);
+  return geo;
 }
 
 // —————————————————————————— Voirie, mobilier, repere ——————————————————————————
