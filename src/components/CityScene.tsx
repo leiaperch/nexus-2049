@@ -15,7 +15,8 @@ import {
   buildPortCranes,
   buildRoads,
   buildRooftopSolar,
-  smogGeometry,
+  hazeGeometry,
+  makeHazeTexture,
   buildStreetLights,
   districtGroundGeometry,
   districtLabelHeight,
@@ -64,7 +65,7 @@ interface SceneCtx {
   solarMat: THREE.MeshStandardMaterial;
   greenRoofMat: THREE.MeshStandardMaterial;
   craneMat: THREE.MeshStandardMaterial;
-  smog: { id: string; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial }[];
+  smog: { id: string; points: THREE.Points; mat: THREE.PointsMaterial }[];
   treeMesh: THREE.InstancedMesh | null;
   treeGeo: THREE.BufferGeometry;
   treeMat: THREE.MeshStandardMaterial;
@@ -271,26 +272,31 @@ export function CityScene() {
     craneMesh.castShadow = true;
     scene.add(craneMesh);
 
-    // Voile de pollution : une nappe par quartier, au-dessus du bâti.
+    // Brume de pollution : un semis de particules diffuses par quartier,
+    // etage dans le volume d'air. Un nuage de points donne la profondeur
+    // qu'un plan a plat ne peut pas rendre.
+    const hazeTex = makeHazeTexture();
     const smogLayers: {
       id: string;
-      mesh: THREE.Mesh;
-      mat: THREE.MeshBasicMaterial;
+      points: THREE.Points;
+      mat: THREE.PointsMaterial;
     }[] = [];
     for (const d of ys0.districts) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xc4643a,
+      const mat = new THREE.PointsMaterial({
+        map: hazeTex,
+        color: 0xb08466,
+        size: 15,
+        sizeAttenuation: true,
         transparent: true,
         opacity: 0,
         depthWrite: false,
-        side: THREE.DoubleSide,
         toneMapped: false,
       });
-      const mesh = new THREE.Mesh(smogGeometry(d.poly), mat);
-      mesh.position.y = 18;
-      mesh.visible = false;
-      scene.add(mesh);
-      smogLayers.push({ id: d.id, mesh, mat });
+      const points = new THREE.Points(hazeGeometry(d.poly), mat);
+      points.visible = false;
+      points.renderOrder = 2;
+      scene.add(points);
+      smogLayers.push({ id: d.id, points, mat });
     }
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -400,10 +406,9 @@ export function CityScene() {
       for (const sm of ctx.smog) {
         const d = yearState.districts.find((x) => x.id === sm.id);
         const p = d ? Math.max(0, (d.pollution - 42) / 58) : 0;
-        // voile leger : il doit se lire comme une brume, jamais comme une plaque
-        sm.mesh.visible = p > 0.06;
-        sm.mat.opacity = p * 0.11;
-        sm.mesh.position.y = 26 + p * 12;
+        sm.points.visible = p > 0.05;
+        sm.mat.opacity = 0.1 + p * 0.55;
+        sm.mat.size = 12 + p * 9;
       }
 
       if (ctx.treeMesh) {
@@ -513,6 +518,13 @@ export function CityScene() {
           f.car.rotation.y = Math.atan2(dir.x, dir.z);
         }
         for (const tb of ctx.turbines) tb.rotor.rotation.z = t * 1.3;
+        // la brume derive et respire lentement
+        for (let i = 0; i < ctx.smog.length; i++) {
+          const sm = ctx.smog[i];
+          if (!sm.points.visible) continue;
+          sm.points.rotation.y = t * 0.012 + i;
+          sm.points.position.y = Math.sin(t * 0.18 + i * 1.7) * 1.4;
+        }
         ctx.waterNormal.offset.set(t * 0.02, t * 0.012);
       }
       ctx.controls.update();
@@ -581,7 +593,7 @@ export function CityScene() {
         maillesBati: ctx.buildingMeshes.length,
         triangles: ctx.renderer.info.render.triangles,
         appels: ctx.renderer.info.render.calls,
-        smogVisible: ctx.smog.filter((s) => s.mesh.visible).length,
+        smogVisible: ctx.smog.filter((s) => s.points.visible).length,
         arbres: ctx.treeMesh?.count ?? 0,
         eoliennes: ctx.turbines.length,
         flux: ctx.flows.length,

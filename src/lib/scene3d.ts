@@ -1216,12 +1216,59 @@ export function buildConstructionCranes(
 }
 
 /**
- * Voile de pollution au-dessus des quartiers les plus emetteurs.
- * Se dissipe a mesure que la pollution locale recule.
+ * Tache floue servant de particule de brume. Un degrade radial doux :
+ * assemblees par centaines, ces taches forment un volume vaporeux, la ou
+ * un plan a plat ne donnerait qu'un aplat.
  */
-export function smogGeometry(poly: [number, number][]): THREE.BufferGeometry {
-  const geo = districtGroundGeometry(poly);
-  return geo;
+export function makeHazeTexture(): THREE.CanvasTexture {
+  const S = 128;
+  const c = document.createElement("canvas");
+  c.width = c.height = S;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0, "rgba(255,255,255,0.46)");
+  g.addColorStop(0.35, "rgba(255,255,255,0.2)");
+  g.addColorStop(0.7, "rgba(255,255,255,0.05)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/**
+ * Semis de particules de brume dans le volume d'air d'un quartier.
+ * Reparties dans l'emprise et etagees en hauteur, avec une densite plus
+ * forte pres du sol — la ou l'air stagne.
+ */
+export function hazeGeometry(
+  poly: [number, number][],
+  count = 190,
+): THREE.BufferGeometry {
+  const xs = poly.map((p) => p[0]);
+  const ys = poly.map((p) => p[1]);
+  const minx = Math.min(...xs);
+  const maxx = Math.max(...xs);
+  const miny = Math.min(...ys);
+  const maxy = Math.max(...ys);
+  const rng = mulberry32(Math.round((minx + maxy) * 99991) ^ poly.length);
+  const pos: number[] = [];
+  let guard = 0;
+  while (pos.length < count * 3 && guard < count * 60) {
+    guard++;
+    const nx = minx + rng() * (maxx - minx);
+    const ny = miny + rng() * (maxy - miny);
+    if (!pointInPoly(nx, ny, poly)) continue;
+    const [x, z] = toWorld(nx, ny);
+    // concentration decroissante avec l'altitude
+    const u = rng();
+    const y = 3 + u * u * 26;
+    pos.push(x, y, z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  return g;
 }
 
 // —————————————————————————— Voirie, mobilier, repere ——————————————————————————
