@@ -22,7 +22,7 @@ export interface AppState {
   soundOn: boolean;
   reducedMotion: boolean;
   /** metrique cartographiee sur la ville. */
-  mapMetric: "pollution" | "greenery" | "density" | "energyUse" | "satisfaction";
+  mapMetric: "greenery" | "pollution" | "density" | "energyUse" | "satisfaction";
   /** notification ephemere. */
   toast: { id: number; text: string; tone: "ok" | "warn" | "info" } | null;
 }
@@ -46,7 +46,7 @@ let state: AppState = {
   mode: "ops",
   soundOn: false,
   reducedMotion: !!prefersReduced,
-  mapMetric: "pollution",
+  mapMetric: "greenery",
   toast: null,
 };
 

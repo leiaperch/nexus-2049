@@ -237,7 +237,8 @@ export interface Sink {
 }
 export const newSink = (): Sink => ({ pos: [], nor: [], uv: [], col: [] });
 
-/** Boite avec UV proportionnelles a la taille des faces (uvk = repet./unite). */
+/** Boite avec UV proportionnelles a la taille des faces (uvk = repet./unite).
+ *  ry : rotation autour de Y (radians) pour casser la trame orthogonale. */
 export function addBox(
   s: Sink,
   cx: number,
@@ -250,14 +251,25 @@ export function addBox(
   g: number,
   b: number,
   uvk = 0.16,
+  ry = 0,
 ) {
+  const co = Math.cos(ry);
+  const si = Math.sin(ry);
+  const rot = (x: number, z: number): [number, number] => [
+    cx + (x - cx) * co - (z - cz) * si,
+    cz + (x - cx) * si + (z - cz) * co,
+  ];
+  const rn = (nx: number, nz: number): [number, number] => [
+    nx * co - nz * si,
+    nx * si + nz * co,
+  ];
   const x0 = cx - sx / 2,
     x1 = cx + sx / 2,
     y0 = cy,
     y1 = cy + sy,
     z0 = cz - sz / 2,
     z1 = cz + sz / 2;
-  const v = [
+  const raw = [
     [x0, y0, z0],
     [x1, y0, z0],
     [x1, y1, z0],
@@ -267,7 +279,10 @@ export function addBox(
     [x1, y1, z1],
     [x0, y1, z1],
   ];
-  // face: [ordre sommets, normale, (w,h) plan]
+  const v = raw.map(([x, y, z]) => {
+    const [rx, rz] = rot(x, z);
+    return [rx, y, rz];
+  });
   const faces: [number[], [number, number, number], number, number][] = [
     [[0, 1, 2, 3], [0, 0, -1], sx, sy],
     [[5, 4, 7, 6], [0, 0, 1], sx, sy],
@@ -277,24 +292,152 @@ export function addBox(
     [[4, 5, 1, 0], [0, -1, 0], sx, sz],
   ];
   for (const [idx, n, fw, fh] of faces) {
-    const [a, b2, c, d] = idx;
+    const corners = idx;
     const uw = fw * uvk;
     const uh = fh * uvk;
-    const corners = [a, b2, c, d];
     const uvc = [
       [0, 0],
       [uw, 0],
       [uw, uh],
       [0, uh],
     ];
+    const [rnx, rnz] = rn(n[0], n[2]);
     const tri = [0, 1, 2, 0, 2, 3];
     for (const t of tri) {
       const vi = corners[t];
       s.pos.push(v[vi][0], v[vi][1], v[vi][2]);
-      s.nor.push(n[0], n[1], n[2]);
+      s.nor.push(rnx, n[1], rnz);
       s.uv.push(uvc[t][0], uvc[t][1]);
       s.col.push(r, g, b);
     }
+  }
+}
+
+/** Toit a deux pentes (prisme triangulaire), faitage le long de X. */
+export function addGable(
+  s: Sink,
+  cx: number,
+  cy: number,
+  cz: number,
+  sx: number,
+  hy: number,
+  sz: number,
+  r: number,
+  g: number,
+  b: number,
+  ry = 0,
+) {
+  const co = Math.cos(ry);
+  const si = Math.sin(ry);
+  const rot = (x: number, z: number): [number, number] => [
+    cx + (x - cx) * co - (z - cz) * si,
+    cz + (x - cx) * si + (z - cz) * co,
+  ];
+  const x0 = cx - sx / 2,
+    x1 = cx + sx / 2,
+    z0 = cz - sz / 2,
+    z1 = cz + sz / 2;
+  const P = (x: number, y: number, z: number) => {
+    const [rx, rz] = rot(x, z);
+    return [rx, y, rz] as [number, number, number];
+  };
+  // sommets : base (4) + faitage (2)
+  const bl0 = P(x0, cy, z0),
+    bl1 = P(x1, cy, z0),
+    br1 = P(x1, cy, z1),
+    br0 = P(x0, cy, z1);
+  const rg0 = P(cx, cy + hy, z0),
+    rg1 = P(cx, cy + hy, z1);
+  const push = (p: number[], n: number[]) => {
+    s.pos.push(p[0], p[1], p[2]);
+    s.nor.push(n[0], n[1], n[2]);
+    s.uv.push(0, 0);
+    s.col.push(r, g, b);
+  };
+  const face = (a: number[], b2: number[], c: number[]) => {
+    const ux = b2[0] - a[0],
+      uy = b2[1] - a[1],
+      uz = b2[2] - a[2];
+    const vx = c[0] - a[0],
+      vy = c[1] - a[1],
+      vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy,
+      ny = uz * vx - ux * vz,
+      nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l;
+    ny /= l;
+    nz /= l;
+    push(a, [nx, ny, nz]);
+    push(b2, [nx, ny, nz]);
+    push(c, [nx, ny, nz]);
+  };
+  // pente avant (z0) et arriere (z1)
+  face(bl0, bl1, rg0);
+  face(br1, br0, rg1);
+  // les deux pans : quads (bas -> faitage)
+  face(bl0, rg0, rg1);
+  face(bl0, rg1, br0);
+  face(bl1, br1, rg1);
+  face(bl1, rg1, rg0);
+}
+
+/** Tour cylindrique (verre) avec UV enroulees et calotte. */
+export function addCylinder(
+  s: Sink,
+  cx: number,
+  cy: number,
+  cz: number,
+  rTop: number,
+  rBot: number,
+  h: number,
+  seg: number,
+  r: number,
+  g: number,
+  b: number,
+  uvk = 0.16,
+) {
+  const y0 = cy,
+    y1 = cy + h;
+  const circ = 2 * Math.PI * rBot;
+  for (let i = 0; i < seg; i++) {
+    const a0 = (i / seg) * Math.PI * 2;
+    const a1 = ((i + 1) / seg) * Math.PI * 2;
+    const c0 = Math.cos(a0),
+      s0 = Math.sin(a0),
+      c1 = Math.cos(a1),
+      s1 = Math.sin(a1);
+    const p00 = [cx + c0 * rBot, y0, cz + s0 * rBot];
+    const p10 = [cx + c1 * rBot, y0, cz + s1 * rBot];
+    const p11 = [cx + c1 * rTop, y1, cz + s1 * rTop];
+    const p01 = [cx + c0 * rTop, y1, cz + s0 * rTop];
+    const n0 = [c0, 0, s0],
+      n1 = [c1, 0, s1];
+    const u0 = (i / seg) * circ * uvk,
+      u1 = ((i + 1) / seg) * circ * uvk,
+      vh = h * uvk;
+    const emit = (p: number[], n: number[], u: number, vv: number) => {
+      s.pos.push(p[0], p[1], p[2]);
+      s.nor.push(n[0], n[1], n[2]);
+      s.uv.push(u, vv);
+      s.col.push(r, g, b);
+    };
+    emit(p00, n0, u0, 0);
+    emit(p10, n1, u1, 0);
+    emit(p11, n1, u1, vh);
+    emit(p00, n0, u0, 0);
+    emit(p11, n1, u1, vh);
+    emit(p01, n0, u0, vh);
+    // calotte
+    const cap = (p: number[]) => {
+      s.pos.push(p[0], p[1], p[2]);
+      s.nor.push(0, 1, 0);
+      s.uv.push(0, 0);
+      s.col.push(r * 0.85, g * 0.85, b * 0.85);
+    };
+    cap([cx, y1, cz]);
+    cap(p01);
+    cap(p11);
   }
 }
 
@@ -326,7 +469,9 @@ const FN_STYLE: Record<DistrictState["fn"], FnStyle> = {
   humide: { hMin: 2, hMax: 5, color: [0.42, 0.46, 0.4], fill: 0.14, spacing: 8, tiered: false },
 };
 
-/** Batiments de tous les quartiers, hauteur = densite, silhouettes etagees. */
+/** Batiments de tous les quartiers : gabarits varies pilotes par la densite.
+ *  Archetypes : bloc oriente, tour a retraits, tour ronde, socle + tour,
+ *  batisse a toit en pente, hangar/cheminee portuaire. */
 export function buildBuildings(districts: DistrictState[]): THREE.BufferGeometry {
   const s = newSink();
   let seedBase = 1;
@@ -351,46 +496,80 @@ export function buildBuildings(districts: DistrictState[]): THREE.BufferGeometry
         const jy = ny + (rng() - 0.5) * stepZ * 0.6;
         if (!pointInPoly(jx, jy, d.poly)) continue;
         const [wx, wz] = toWorld(jx, jy);
-        const foot = spacing * (0.44 + rng() * 0.26);
-        const foot2 = spacing * (0.44 + rng() * 0.26);
+        const foot = spacing * (0.42 + rng() * 0.3);
+        const foot2 = spacing * (0.42 + rng() * 0.3);
         const hBase = style.hMin + (style.hMax - style.hMin) * densF;
-        const h = Math.max(2, hBase * (0.55 + rng() * 0.85));
-        const shade = 0.86 + rng() * 0.26;
+        const h = Math.max(2, hBase * (0.5 + rng() * 0.95));
+        const shade = 0.82 + rng() * 0.3;
         const cr = style.color[0] * shade;
         const cg = style.color[1] * shade;
         const cb = style.color[2] * shade;
-        if (style.tiered && h > style.hMax * 0.45) {
-          // tour a retraits
-          const tiers = 2 + Math.floor(rng() * 2);
-          let y = 0;
-          let fw = foot;
-          let fd = foot2;
-          for (let ti = 0; ti < tiers; ti++) {
-            const th = (h / tiers) * (0.7 + rng() * 0.5);
-            addBox(s, wx, y, wz, fw, th, fd, cr, cg, cb);
-            y += th;
-            fw *= 0.72 + rng() * 0.12;
-            fd *= 0.72 + rng() * 0.12;
+        const ry = (rng() - 0.5) * 0.7; // orientation variee
+        const tall = h > style.hMax * 0.5;
+        const p = rng();
+
+        if (d.fn === "portuaire") {
+          // hangars bas larges + cheminees
+          if (p < 0.24) {
+            addCylinder(s, wx, 0, wz, foot * 0.22, foot * 0.28, h * 1.5 + 4, 8, cr, cg, cb, 0.1);
+          } else {
+            addBox(s, wx, 0, wz, foot * 1.15, Math.min(h, 6), foot2, cr, cg, cb, 0.16, ry);
+            if (rng() > 0.6)
+              addGable(s, wx, Math.min(h, 6), wz, foot * 1.15, 1.4, foot2, cr * 0.9, cg * 0.9, cb * 0.9, ry);
           }
-          // couronnement + antenne
-          addBox(s, wx, y, wz, fw * 0.5, 1 + rng() * 2, fd * 0.5, cr * 0.8, cg * 0.8, cb * 0.8);
-          if (rng() > 0.4)
-            addBox(s, wx, y + 1.5, wz, 0.3, 2 + rng() * 3, 0.3, 0.2, 0.2, 0.2);
+        } else if (style.tiered && tall) {
+          if (p < 0.28) {
+            // tour ronde (verre)
+            const seg = 12;
+            addCylinder(s, wx, 0, wz, foot * 0.34, foot * 0.42, h, seg, cr, cg, cb);
+            addCylinder(s, wx, h, wz, foot * 0.2, foot * 0.34, 1.5, seg, cr * 0.8, cg * 0.8, cb * 0.8);
+          } else if (p < 0.62) {
+            // socle + tour elancee
+            const podium = h * (0.22 + rng() * 0.12);
+            addBox(s, wx, 0, wz, foot * 1.2, podium, foot2 * 1.2, cr * 0.92, cg * 0.92, cb * 0.92, 0.16, ry);
+            addBox(s, wx, podium, wz, foot * 0.62, h - podium, foot2 * 0.62, cr, cg, cb, 0.16, ry);
+            addBox(s, wx, h, wz, foot * 0.3, 1 + rng() * 2, foot2 * 0.3, cr * 0.8, cg * 0.8, cb * 0.8, 0.16, ry);
+            if (rng() > 0.5) addBox(s, wx, h + 1.5, wz, 0.3, 2 + rng() * 3, 0.3, 0.18, 0.18, 0.18, 0.16, ry);
+          } else {
+            // tour a retraits
+            const tiers = 2 + Math.floor(rng() * 2);
+            let y = 0;
+            let fw = foot;
+            let fd = foot2;
+            for (let ti = 0; ti < tiers; ti++) {
+              const th = (h / tiers) * (0.7 + rng() * 0.5);
+              addBox(s, wx, y, wz, fw, th, fd, cr, cg, cb, 0.16, ry);
+              y += th;
+              fw *= 0.72 + rng() * 0.12;
+              fd *= 0.72 + rng() * 0.12;
+            }
+            addBox(s, wx, y, wz, fw * 0.5, 1 + rng() * 2, fd * 0.5, cr * 0.8, cg * 0.8, cb * 0.8, 0.16, ry);
+          }
+        } else if ((d.fn === "historique" || d.fn === "humide") && p < 0.7) {
+          // batisse a toit en pente
+          addBox(s, wx, 0, wz, foot, h, foot2, cr, cg, cb, 0.16, ry);
+          addGable(s, wx, h, wz, foot, foot2 * 0.42 + 1, foot2, cr * 0.86, cg * 0.8, cb * 0.72, ry);
+        } else if (p < 0.2) {
+          // bloc en L (deux corps)
+          addBox(s, wx, 0, wz, foot, h, foot2 * 0.55, cr, cg, cb, 0.16, ry);
+          addBox(s, wx + foot * 0.28, 0, wz + foot2 * 0.28, foot * 0.5, h * (0.7 + rng() * 0.3), foot2, cr, cg, cb, 0.16, ry);
         } else {
-          addBox(s, wx, 0, wz, foot, h, foot2, cr, cg, cb);
-          // edicule de toit
+          // bloc simple oriente + edicule
+          addBox(s, wx, 0, wz, foot, h, foot2, cr, cg, cb, 0.16, ry);
           if (rng() > 0.5)
             addBox(
               s,
-              wx + (rng() - 0.5) * foot * 0.4,
+              wx + (rng() - 0.5) * foot * 0.3,
               h,
-              wz + (rng() - 0.5) * foot2 * 0.4,
+              wz + (rng() - 0.5) * foot2 * 0.3,
               foot * (0.3 + rng() * 0.3),
               0.6 + rng() * 1.6,
               foot2 * (0.3 + rng() * 0.3),
               cr * 0.75,
               cg * 0.75,
               cb * 0.75,
+              0.16,
+              ry,
             );
         }
       }
