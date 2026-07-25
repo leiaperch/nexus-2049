@@ -83,6 +83,7 @@ export function IndicatorPanel() {
     "qol",
     "trust",
     "budget",
+    "capital",
     "energy",
     "mobility",
     "biodiversity",

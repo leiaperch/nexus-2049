@@ -4,14 +4,19 @@ import {
   INITIAL_DISTRICTS,
   INITIAL_INDICATORS,
 } from "./data";
+import { CRISES, CRISIS_BY_ID } from "./crises";
 import {
   END_YEAR,
+  SCALE_BY_KEY,
+  SCALES,
   START_YEAR,
   type Decision,
   type DistrictState,
   type EnactedDecision,
   type Indicators,
   type NarrativeEvent,
+  type Scale,
+  type ScaleSpec,
   type YearState,
 } from "./types";
 
@@ -33,6 +38,7 @@ function clampIndicators(ind: Indicators) {
   ind.qol = clamp(ind.qol, 0, 100);
   // budget non borne (dette possible) mais plancher de securite
   ind.budget = clamp(ind.budget, -1200, 4000);
+  ind.capital = clamp(ind.capital, 0, 120);
   ind.energy = clamp(ind.energy, 0, 100);
   ind.mobility = clamp(ind.mobility, 0, 100);
   ind.biodiversity = clamp(ind.biodiversity, 0, 100);
@@ -129,8 +135,16 @@ function baselineDrift(ind: Indicators, year: number) {
   // arbitrage par an : bien choisir laisse une marge, empiler les gros
   // investissements creuse la dette.
   const revenue = 82 + (ind.qol - 58) * 0.9 + (ind.trust - 55) * 0.5;
-  const charges = 24 + (year >= 2060 ? 8 : 0) + Math.max(0, ind.carbon - 12) * 0.6;
+  const debtService = ind.budget < 0 ? -ind.budget * 0.045 : 0;
+  const charges =
+    24 + (year >= 2060 ? 8 : 0) + Math.max(0, ind.carbon - 12) * 0.6 + debtService;
   ind.budget += revenue - charges;
+
+  // — Capital politique —
+  // Se reconstitue chaque annee, d'autant plus vite que la population
+  // adhere. Une ville defiante ne renouvelle presque plus le credit de
+  // son executif : les arbitrages contestes deviennent impossibles.
+  ind.capital += 11 + (ind.trust - 55) * 0.16;
 }
 
 /** Evenements de fond declenches par franchissement de seuils. */
@@ -184,6 +198,33 @@ function thresholdEvents(
   return out;
 }
 
+/** Multiplie un jeu d'effets par le facteur d'ampleur retenu. */
+function scaled(part: Partial<Indicators> | undefined, k: number): Partial<Indicators> {
+  const out: Partial<Indicators> = {};
+  if (!part) return out;
+  for (const key in part) {
+    const kk = key as keyof Indicators;
+    out[kk] = (part[kk] as number) * k;
+  }
+  return out;
+}
+
+/**
+ * Cout politique d'un arbitrage. Une mesure impopulaire, couteuse ou
+ * conduite avec ampleur consomme davantage de credit au conseil.
+ */
+export function politicalCost(d: Decision, scale: Scale): number {
+  const s = SCALE_BY_KEY[scale];
+  const contested = Math.max(0, -(d.immediate.trust ?? 0));
+  const base = 7 + contested * 2.2 + d.upfront * 0.035;
+  return Math.round(base * s.political);
+}
+
+/** Cout financier initial d'un arbitrage, ampleur comprise. */
+export function financialCost(d: Decision, scale: Scale): number {
+  return Math.round(d.upfront * SCALE_BY_KEY[scale].cost);
+}
+
 export interface Projection {
   timeline: YearState[];
   /** index par annee pour acces direct. */
@@ -197,12 +238,14 @@ export interface Projection {
  * des decisions promulguees. Fonction pure et deterministe.
  */
 export function project(enacted: EnactedDecision[]): Projection {
-  const decisionsByYear = new Map<number, Decision[]>();
+  // chaque arbitrage porte l'ampleur retenue : elle module cout et portee
+  type Enacted = { d: Decision; s: ScaleSpec };
+  const decisionsByYear = new Map<number, Enacted[]>();
   for (const e of enacted) {
-    const d = DECISION_BY_ID[e.decisionId];
+    const d = lookupDecision(e.decisionId);
     if (!d) continue;
     const arr = decisionsByYear.get(e.year) ?? [];
-    arr.push(d);
+    arr.push({ d, s: SCALE_BY_KEY[e.scale] ?? SCALE_BY_KEY.mesure });
     decisionsByYear.set(e.year, arr);
   }
 
@@ -217,7 +260,7 @@ export function project(enacted: EnactedDecision[]): Projection {
 
   const ind: Indicators = { ...INITIAL_INDICATORS };
   let districts = cloneDistricts(INITIAL_DISTRICTS);
-  const activeDecisions: Decision[] = [];
+  const activeDecisions: Enacted[] = [];
   const firedThresholds = new Set<string>();
   const timeline: YearState[] = [];
   const byYear: Record<number, YearState> = {};
@@ -230,31 +273,44 @@ export function project(enacted: EnactedDecision[]): Projection {
 
     // 2. nouvelles decisions promulguees cette annee
     const fresh = decisionsByYear.get(year) ?? [];
-    for (const d of fresh) {
-      activeDecisions.push(d);
-      addIndicators(ind, d.immediate);
-      ind.budget -= d.upfront;
+    for (const { d, s } of fresh) {
+      activeDecisions.push({ d, s });
+      addIndicators(ind, scaled(d.immediate, s.effect));
+      ind.trust += s.trustBias;
+      ind.budget -= d.upfront * s.cost;
+      ind.capital -= politicalCost(d, s.key);
       events.push({
         year,
-        tone: "neutre",
-        source: "Conseil metropolitain",
-        title: `Deliberation ${d.ref} adoptee`,
-        body: `${d.title} — ${d.summary}`,
+        tone: d.kind === "crise" ? "alerte" : "neutre",
+        source: d.kind === "crise" ? "Cellule de crise" : "Conseil metropolitain",
+        title:
+          d.kind === "crise"
+            ? `${d.ref} — réponse ${s.label.toLowerCase()}`
+            : `Deliberation ${d.ref} adoptee (${s.label.toLowerCase()})`,
+        body: `${d.title} — ${d.line}`,
         cause: d.id,
       });
-      // programmer les effets differes
+      // programmer les effets differes, mis a l'echelle
       for (const de of d.delayed) {
-        scheduleEffect(year + de.delay, de, d.id);
+        scheduleEffect(
+          year + de.delay,
+          { ...de, indicators: scaled(de.indicators, s.effect) },
+          d.id,
+        );
       }
     }
 
     // 3. effets recurrents des decisions actives
-    for (const d of activeDecisions) {
-      addIndicators(ind, d.ongoing);
-      ind.budget += d.recurring;
+    for (const { d, s } of activeDecisions) {
+      addIndicators(ind, scaled(d.ongoing, s.effect));
+      ind.budget += d.recurring * s.cost;
       if (d.districtOngoing) {
         const { target, ...rest } = d.districtOngoing;
-        applyDistrictDelta(districts, target, rest);
+        const k = s.effect;
+        const scaledRest: Record<string, number> = {};
+        for (const key in rest)
+          scaledRest[key] = (rest as Record<string, number>)[key] * k;
+        applyDistrictDelta(districts, target, scaledRest);
       }
     }
 
@@ -300,7 +356,7 @@ export function project(enacted: EnactedDecision[]): Projection {
   return {
     timeline,
     byYear,
-    active: activeDecisions.map((d) => d.id),
+    active: activeDecisions.map((e) => e.d.id),
   };
 }
 
@@ -309,6 +365,31 @@ export function project(enacted: EnactedDecision[]): Projection {
 // tires de maniere deterministe. Le joueur doit en arbitrer au moins
 // un pour que la projection avance.
 // ————————————————————————————————————————————————————————————————
+
+/** Une decision, qu'elle vienne du catalogue ordinaire ou des crises. */
+export function lookupDecision(id: string): Decision | undefined {
+  return DECISION_BY_ID[id] ?? CRISIS_BY_ID[id];
+}
+
+/**
+ * Crise imposee cette annee, s'il y en a une. Deterministe : les chocs
+ * frappent aux memes annees pour tout le monde, seule la reponse varie.
+ */
+export function crisisForYear(
+  year: number,
+  enacted: EnactedDecision[],
+): Decision | null {
+  if (year < 2052) return null;
+  // environ une annee sur quatre, jamais deux de suite
+  if ((year * 2654435761) % 4 !== 1) return null;
+  const taken = new Set(enacted.map((e) => e.decisionId));
+  const pool = CRISES.filter(
+    (c) => !taken.has(c.id) && (c.minYear == null || year >= c.minYear),
+  );
+  if (pool.length === 0) return null;
+  const sorted = [...pool].sort((a, b) => hash2(year, a.id) - hash2(year, b.id));
+  return sorted[0];
+}
 
 function hash2(year: number, id: string): number {
   let h = (2166136261 ^ year) >>> 0;
@@ -334,6 +415,11 @@ export function offersForYear(
   enacted: EnactedDecision[],
   count = 3,
 ): Decision[] {
+  // Une crise confisque l'ordre du jour : le conseil n'a plus le choix
+  // de l'objet, seulement celui de l'ampleur de sa reponse.
+  const crisis = crisisForYear(year, enacted);
+  if (crisis) return [crisis];
+
   const taken = new Set(enacted.map((e) => e.decisionId));
   const pool = DECISIONS.filter((d) => eligible(d, taken, year));
   if (pool.length === 0) return [];
@@ -372,17 +458,50 @@ export function isYearResolved(
   return enacted.some((e) => e.year === year);
 }
 
+/** Plafond d'endettement au-dela duquel plus rien n'est finançable. */
+export const DEBT_CEILING = -450;
+
 /**
- * Peut-on depasser cette annee ? Oui si elle a ete arbitree, ou si NEXUS
- * n'avait aucun dossier a soumettre (catalogue epuise).
+ * Un dossier peut-il etre arbitre compte tenu des ressources ?
+ * Une crise echappe a la contrainte politique : le conseil n'a pas le
+ * loisir de ne pas repondre a un choc, seulement celui d'y mettre les
+ * moyens ou non.
+ */
+export function affordable(
+  d: Decision,
+  scale: Scale,
+  ind: Indicators,
+): boolean {
+  if (ind.budget - financialCost(d, scale) < DEBT_CEILING) return false;
+  if (d.kind !== "crise" && ind.capital < politicalCost(d, scale)) return false;
+  return true;
+}
+
+/** Existe-t-il au moins un arbitrage possible cette annee ? */
+export function anyAffordable(
+  offers: Decision[],
+  ind: Indicators,
+): boolean {
+  return offers.some((d) => SCALES.some((s) => affordable(d, s.key, ind)));
+}
+
+/**
+ * Peut-on depasser cette annee ? Oui si elle a ete arbitree, si NEXUS
+ * n'avait aucun dossier a soumettre, ou si aucun dossier n'etait
+ * finançable — dans ce dernier cas le conseil constate sa carence et
+ * l'annee passe sans decision, ce qui coute en confiance.
  */
 export function canPassYear(
   enacted: EnactedDecision[],
   year: number,
+  ind?: Indicators,
 ): boolean {
   if (year >= END_YEAR) return false;
   if (isYearResolved(enacted, year)) return true;
-  return offersForYear(year, enacted).length === 0;
+  const offers = offersForYear(year, enacted);
+  if (offers.length === 0) return true;
+  if (ind && !anyAffordable(offers, ind)) return true;
+  return false;
 }
 
 /** Verifie si une decision peut etre promulguee a une annee donnee. */

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
-import { DECISION_BY_ID, INDICATORS, TRACK_META } from "../sim/data";
+import { INDICATORS, TRACK_META } from "../sim/data";
+import { lookupDecision } from "../sim/engine";
 import { END_YEAR, START_YEAR, type IndicatorKey } from "../sim/types";
 import { actions, useStore } from "../store/store";
 import { INDICATOR_COLORVAR } from "../lib/colors";
@@ -12,6 +13,7 @@ const ORDER: IndicatorKey[] = [
   "qol",
   "trust",
   "budget",
+  "capital",
   "energy",
   "mobility",
   "biodiversity",
@@ -87,7 +89,10 @@ export function Epilogue() {
   }, []);
 
   const score = useMemo(() => {
-    const six = INDICATORS.filter((m) => m.key !== "budget");
+    // ressources de gouvernance exclues : elles servent a agir, pas a noter
+    const six = INDICATORS.filter(
+      (m) => m.key !== "budget" && m.key !== "capital",
+    );
     const s = six.reduce(
       (acc, m) =>
         acc + normIndicator(last.indicators[m.key], m.min, m.max, m.higherBetter),
@@ -106,7 +111,7 @@ export function Epilogue() {
   const byTrack = useMemo(() => {
     const t: Record<string, number> = { energie: 0, mobilite: 0, climat: 0 };
     for (const e of enacted) {
-      const d = DECISION_BY_ID[e.decisionId];
+      const d = lookupDecision(e.decisionId);
       if (d) t[d.track] = (t[d.track] ?? 0) + 1;
     }
     return t;

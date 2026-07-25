@@ -405,12 +405,56 @@
   color: var(--paper-dim);
   line-height: 1.45;
 }
+/* — Ampleur de la mesure — */
+.dm-scales {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  margin-top: var(--sp-1);
+}
+.dm-scale {
+  background: var(--ink-850);
+  border: none;
+  padding: 7px 4px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--paper-faint);
+  border-top: 2px solid transparent;
+}
+.dm-scale:hover {
+  color: var(--paper);
+}
+.dm-scale.is-active {
+  background: var(--ink-750);
+  color: var(--paper);
+  border-top-color: var(--focus);
+}
+.dm-pol {
+  font-size: var(--fs-xs);
+  color: var(--violet);
+}
+.dm-pol.bad {
+  color: var(--signal);
+}
+.dm-card.is-crisis {
+  border-top-color: var(--signal) !important;
+  box-shadow: inset 0 0 40px rgba(221, 75, 42, 0.09);
+}
+.dm-card.is-crisis .dm-card-title {
+  color: var(--signal);
+}
+
 .dm-cost {
   display: flex;
   align-items: baseline;
   gap: 5px;
   padding-top: var(--sp-2);
   border-top: 1px solid var(--line-soft);
+  flex-wrap: wrap;
 }
 .dm-cost-num {
   font-size: var(--fs-lg);

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { DECISION_BY_ID, INDICATORS, TRACK_META } from "../sim/data";
+import { INDICATORS, TRACK_META } from "../sim/data";
+import { lookupDecision } from "../sim/engine";
 import { START_YEAR, YEARS, type IndicatorKey } from "../sim/types";
 import { useStore } from "../store/store";
 import { INDICATOR_COLORVAR } from "../lib/colors";
@@ -32,7 +33,8 @@ function DecisionLog() {
       ) : (
         <ol className="log-list">
           {log.map((e) => {
-            const d = DECISION_BY_ID[e.decisionId];
+            const d = lookupDecision(e.decisionId);
+            if (!d) return null;
             return (
               <li key={e.decisionId} className="log-item">
                 <span className="num log-year">{e.year}</span>
@@ -55,7 +57,9 @@ function DecisionLog() {
 /** Relations de cause a effet : deliberations -> indicateurs impactes. */
 function CausalGraph() {
   const state = useStore();
-  const active = state.enacted.map((e) => DECISION_BY_ID[e.decisionId]);
+  const active = state.enacted
+    .map((e) => lookupDecision(e.decisionId))
+    .filter((d): d is NonNullable<typeof d> => !!d);
   const [hover, setHover] = useState<string | null>(null);
 
   // aggregation : pour chaque indicateur, quelles decisions y contribuent
@@ -145,6 +149,7 @@ function CompareBlock() {
     "qol",
     "trust",
     "budget",
+    "capital",
     "energy",
     "mobility",
     "biodiversity",

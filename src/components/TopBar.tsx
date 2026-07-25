@@ -14,7 +14,9 @@ export function TopBar({ onOpenDecisions, onOpenPalette, onOpenHelp }: Props) {
 
   // indice de sante urbaine composite (0-100)
   const health = Math.round(
-    (INDICATORS.filter((m) => m.key !== "budget").reduce((acc, m) => {
+    (INDICATORS.filter(
+      (m) => m.key !== "budget" && m.key !== "capital",
+    ).reduce((acc, m) => {
       return acc + normIndicator(ys.indicators[m.key], m.min, m.max, m.higherBetter);
     }, 0) /
       6) *

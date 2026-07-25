@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { INDICATOR_BY_KEY, TRACK_META } from "../sim/data";
-import type { Decision } from "../sim/types";
+import { DEBT_CEILING, financialCost, politicalCost } from "../sim/engine";
+import { SCALES, SCALE_BY_KEY, type Decision, type Scale } from "../sim/types";
 import { actions, useStore } from "../store/store";
 import { INDICATOR_COLORVAR } from "../lib/colors";
 import { fmtSigned } from "../lib/format";
@@ -83,26 +84,57 @@ export function YearDossiers() {
 }
 
 function DossierCard({ decision }: { decision: Decision }) {
+  const state = useStore();
+  const [scale, setScale] = useState<Scale>("mesure");
+  const spec = SCALE_BY_KEY[scale];
+  const ind = state.projection.byYear[state.currentYear].indicators;
+
+  const cost = financialCost(decision, scale);
+  const pol = politicalCost(decision, scale);
+  const recurring = Math.round(decision.recurring * spec.cost);
   const effects = Object.entries(decision.immediate).filter(([, v]) => v !== 0);
+
+  const tooPoor = ind.budget - cost < DEBT_CEILING;
+  // une crise doit toujours pouvoir recevoir une reponse : elle echappe
+  // a la contrainte de capital politique
+  const tooWeak = decision.kind !== "crise" && ind.capital < pol;
+  const blocked = tooPoor || tooWeak;
+
   return (
-    <li className="dm-card" data-track={decision.track}>
+    <li className={`dm-card ${decision.kind === "crise" ? "is-crisis" : ""}`} data-track={decision.track}>
       <div className="dm-card-top">
         <span className="label-strong dossier-ref" data-track={decision.track}>
           {decision.ref}
         </span>
-        <span className="label">{TRACK_META[decision.track].code}</span>
+        <span className="label">
+          {decision.kind === "crise" ? "IMPOSÉ" : TRACK_META[decision.track].code}
+        </span>
       </div>
       <h3 className="dm-card-title">{decision.title}</h3>
       <p className="dm-card-line">{decision.line}</p>
 
-      <div className="dm-cost">
-        <span className="num dm-cost-num">−{decision.upfront}</span>
-        <span className="label">M cr</span>
-        {decision.recurring !== 0 && (
-          <span
-            className={`num dm-rec ${decision.recurring > 0 ? "good" : "bad"}`}
+      {/* Ampleur : le meme dossier, conduit a trois niveaux d'engagement. */}
+      <div className="dm-scales" role="radiogroup" aria-label="Ampleur de la mesure">
+        {SCALES.map((s) => (
+          <button
+            key={s.key}
+            role="radio"
+            aria-checked={scale === s.key}
+            className={`dm-scale ${scale === s.key ? "is-active" : ""}`}
+            onClick={() => setScale(s.key)}
           >
-            {fmtSigned(decision.recurring, 0)}/an
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="dm-cost">
+        <span className="num dm-cost-num">−{cost}</span>
+        <span className="label">M cr</span>
+        <span className={`num dm-pol ${tooWeak ? "bad" : ""}`}>−{pol} pol</span>
+        {recurring !== 0 && (
+          <span className={`num dm-rec ${recurring > 0 ? "good" : "bad"}`}>
+            {fmtSigned(recurring, 0)}/an
           </span>
         )}
       </div>
@@ -111,14 +143,15 @@ function DossierCard({ decision }: { decision: Decision }) {
         {effects.slice(0, 4).map(([k, v]) => {
           const meta = INDICATOR_BY_KEY[k];
           if (!meta) return null;
-          const good = meta.higherBetter ? v > 0 : v < 0;
+          const val = v * spec.effect + (k === "trust" ? spec.trustBias : 0);
+          const good = meta.higherBetter ? val > 0 : val < 0;
           return (
             <span key={k} className={`dossier-chip ${good ? "good" : "bad"}`}>
               <span
                 className="dossier-chip-dot"
                 style={{ background: INDICATOR_COLORVAR[k] }}
               />
-              {meta.short} {fmtSigned(v, 1)}
+              {meta.short} {fmtSigned(val, 1)}
             </span>
           );
         })}
@@ -126,9 +159,14 @@ function DossierCard({ decision }: { decision: Decision }) {
 
       <button
         className="btn dossier-go dm-go"
-        onClick={() => actions.enactDecision(decision.id)}
+        disabled={blocked}
+        onClick={() => actions.enactDecision(decision.id, scale)}
       >
-        Arbitrer
+        {tooPoor
+          ? "Financement indisponible"
+          : tooWeak
+            ? "Capital politique insuffisant"
+            : "Arbitrer"}
       </button>
     </li>
   );

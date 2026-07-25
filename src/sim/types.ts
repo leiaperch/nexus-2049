@@ -12,10 +12,40 @@ export type IndicatorKey =
   | "carbon" // emissions nettes (MtCO2/an) — plus bas = mieux
   | "qol" // qualite de vie (indice 0-100)
   | "budget" // tresorerie publique (M credits, peut etre negative)
+  | "capital" // capital politique disponible (points de mandat)
   | "energy" // part d'energie decarbonee (%)
   | "mobility" // accessibilite moyenne (indice 0-100)
   | "biodiversity" // indice de biodiversite (0-100)
   | "trust"; // confiance de la population (0-100)
+
+/**
+ * Ampleur retenue pour une politique. Le meme dossier peut etre conduit
+ * a trois niveaux : c'est l'arbitrage interne entre cout et portee.
+ */
+export type Scale = "minimal" | "mesure" | "ambitieux";
+
+export interface ScaleSpec {
+  key: Scale;
+  label: string;
+  /** multiplicateur de cout (initial et recurrent). */
+  cost: number;
+  /** multiplicateur d'effet (immediat, continu, differe). */
+  effect: number;
+  /** effet propre sur la confiance : la sobriete rassure, l'ampleur crispe. */
+  trustBias: number;
+  /** multiplicateur de cout politique. */
+  political: number;
+}
+
+export const SCALES: ScaleSpec[] = [
+  { key: "minimal", label: "Minimal", cost: 0.42, effect: 0.48, trustBias: 1.5, political: 0.55 },
+  { key: "mesure", label: "Mesuré", cost: 1, effect: 1, trustBias: 0, political: 1 },
+  { key: "ambitieux", label: "Ambitieux", cost: 1.75, effect: 1.6, trustBias: -3, political: 1.7 },
+];
+
+export const SCALE_BY_KEY = Object.fromEntries(
+  SCALES.map((s) => [s.key, s]),
+) as Record<Scale, ScaleSpec>;
 
 export interface IndicatorMeta {
   key: IndicatorKey;
@@ -83,6 +113,8 @@ export interface DistrictDeltas {
 export interface Decision {
   id: string;
   track: Track;
+  /** dossier ordinaire, ou crise imposee au conseil. */
+  kind?: "crise";
   title: string;
   /** intitule court pour l'historique. */
   ref: string;
@@ -133,8 +165,9 @@ export interface YearState {
   events: NarrativeEvent[];
 }
 
-/** Une decision promulguee, horodatee. */
+/** Une decision promulguee, horodatee, avec l'ampleur retenue. */
 export interface EnactedDecision {
   decisionId: string;
   year: number;
+  scale: Scale;
 }

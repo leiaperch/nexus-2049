@@ -1,13 +1,20 @@
 import { useSyncExternalStore } from "react";
 import { DECISION_BY_ID } from "../sim/data";
+import type { Scale } from "../sim/types";
 import {
+  affordable,
   canEnact,
   canPassYear,
+  DEBT_CEILING,
+  financialCost,
   isYearResolved,
+  lookupDecision,
   offersForYear,
+  politicalCost,
   project,
   type Projection,
 } from "../sim/engine";
+
 import {
   END_YEAR,
   START_YEAR,
@@ -107,17 +114,29 @@ function toast(text: string, tone: "ok" | "warn" | "info" = "info") {
 // ————————————————————————————————————————————————————————————————
 
 export const actions = {
-  enactDecision(decisionId: string): boolean {
-    const decision = DECISION_BY_ID[decisionId];
+  enactDecision(decisionId: string, scale: Scale = "mesure"): boolean {
+    const decision = lookupDecision(decisionId);
     if (!decision) return false;
     const check = canEnact(decision, state.enacted, state.currentYear);
     if (!check.ok) {
       toast(`Refuse : ${check.reason}`, "warn");
       return false;
     }
+    const ind = state.projection.byYear[state.currentYear].indicators;
+    if (!affordable(decision, scale, ind)) {
+      const cost = financialCost(decision, scale);
+      const pol = politicalCost(decision, scale);
+      toast(
+        ind.budget - cost < DEBT_CEILING
+          ? `Financement indisponible (${cost} M cr)`
+          : `Capital politique insuffisant (${pol} pts)`,
+        "warn",
+      );
+      return false;
+    }
     pushHistory();
     const year = state.currentYear;
-    const enacted = [...state.enacted, { decisionId, year }];
+    const enacted = [...state.enacted, { decisionId, year, scale }];
     set({ enacted, projection: reproject(enacted), dossiersOpen: false });
     toast(`${decision.ref} promulguee en ${year}`, "ok");
     // L'arbitrage rendu, le temps repart : on avance d'une annee pour que
@@ -163,7 +182,7 @@ export const actions = {
   /** Annee la plus avancee atteignable compte tenu des arbitrages rendus. */
   frontier(): number {
     let y = START_YEAR;
-    while (y < END_YEAR && canPassYear(state.enacted, y)) y++;
+    while (y < END_YEAR && canPassYear(state.enacted, y, state.projection.byYear[y].indicators)) y++;
     return y;
   },
 
@@ -199,7 +218,11 @@ export const actions = {
   blocked() {
     return (
       state.currentYear < END_YEAR &&
-      !canPassYear(state.enacted, state.currentYear)
+      !canPassYear(
+        state.enacted,
+        state.currentYear,
+        state.projection.byYear[state.currentYear].indicators,
+      )
     );
   },
 
@@ -232,7 +255,13 @@ export const actions = {
       if (!state.epilogueSeen) set({ epilogueOpen: true, epilogueSeen: true });
       return;
     }
-    if (!canPassYear(state.enacted, state.currentYear)) {
+    if (
+      !canPassYear(
+        state.enacted,
+        state.currentYear,
+        state.projection.byYear[state.currentYear].indicators,
+      )
+    ) {
       set({ playing: false });
       toast(`${state.currentYear} : arbitrage requis`, "warn");
       return;
