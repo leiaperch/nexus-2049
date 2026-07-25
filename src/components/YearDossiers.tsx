@@ -27,9 +27,13 @@ export function YearDossiers() {
   }, []);
 
   return (
-    <div
+    <motion.div
       className="drawer-scrim dossiers-scrim"
       onClick={(e) => e.target === e.currentTarget && actions.dismissDossiers()}
+      initial={state.reducedMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.32, ease: "easeOut" }}
     >
       <motion.div
         className="dossiers-modal"
@@ -37,10 +41,10 @@ export function YearDossiers() {
         role="dialog"
         aria-modal="true"
         aria-label={`Dossiers soumis pour ${state.currentYear}`}
-        initial={state.reducedMotion ? false : { opacity: 0, y: 14, scale: 0.99 }}
+        initial={state.reducedMotion ? false : { opacity: 0, y: 26, scale: 0.985 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={state.reducedMotion ? { opacity: 0 } : { opacity: 0, y: -8 }}
-        transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+        exit={state.reducedMotion ? { opacity: 0 } : { opacity: 0, y: 14, scale: 0.99 }}
+        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
       >
         <header className="dm-head">
           <div className="dm-title">
@@ -74,7 +78,7 @@ export function YearDossiers() {
           </span>
         </footer>
       </motion.div>
-    </div>
+    </motion.div>
   );
 }
 

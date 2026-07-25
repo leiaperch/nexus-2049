@@ -56,6 +56,37 @@ function applyDistrictDelta(
   }
 }
 
+// Etat de reference : sert a rapporter la densite a l'occupation reelle.
+const POP0: Record<string, number> = Object.fromEntries(
+  INITIAL_DISTRICTS.map((d) => [d.id, d.population]),
+);
+const DENS0: Record<string, number> = Object.fromEntries(
+  INITIAL_DISTRICTS.map((d) => [d.id, d.density]),
+);
+
+/**
+ * Dynamique de peuplement. La metropole croit ou decroit selon sa qualite
+ * de vie et la confiance ; a l'interieur, les menages arbitrent entre
+ * quartiers selon la satisfaction, le verdissement, la saturation et la
+ * pollution. La densite bâtie suit ensuite l'occupation reelle du sol.
+ */
+function evolvePopulation(districts: DistrictState[], ind: Indicators) {
+  const cityRate =
+    0.0035 + (ind.qol - 58) * 0.00018 + (ind.trust - 55) * 0.0001;
+  for (const d of districts) {
+    const attract =
+      (d.satisfaction - 52) * 0.0014 +
+      (d.greenery - 30) * 0.0005 -
+      Math.max(0, d.density - 86) * 0.0025 -
+      Math.max(0, d.pollution - 60) * 0.0009;
+    const rate = clamp(cityRate + attract, -0.028, 0.035);
+    d.population = Math.max(1500, Math.round(d.population * (1 + rate)));
+    // la densite bâtie rejoint lentement l'occupation constatee
+    const target = (DENS0[d.id] ?? d.density) * (d.population / (POP0[d.id] || 1));
+    d.density = clamp(d.density + (target - d.density) * 0.12, 0, 100);
+  }
+}
+
 /**
  * Derive la satisfaction de quartier vers un equilibre dependant de
  * la pollution, du verdissement et de la densite. Modele lent (inertie).
@@ -249,8 +280,9 @@ export function project(enacted: EnactedDecision[]): Projection {
 
     clampIndicators(ind);
 
-    // 5. dynamique lente des quartiers
+    // 5. dynamique lente des quartiers : satisfaction, puis peuplement
     relaxDistricts(districts, ind.trust);
+    if (year > START_YEAR) evolvePopulation(districts, ind);
 
     // 6. evenements de seuil
     events.push(...thresholdEvents(ind, year, firedThresholds));

@@ -7,6 +7,7 @@ import { Timeline } from "./components/Timeline";
 import { EventFeed } from "./components/EventFeed";
 import { YearDossiers } from "./components/YearDossiers";
 import { Epilogue } from "./components/Epilogue";
+import { DecisionPrompt } from "./components/DecisionPrompt";
 import { DistrictInspector } from "./components/DistrictInspector";
 import { DecisionCenter } from "./components/DecisionCenter";
 import { CommandPalette } from "./components/CommandPalette";
@@ -45,24 +46,6 @@ export default function App() {
     else if (state.toast.tone === "warn") sfx.alert();
     else sfx.ui();
   }, [state.toast]);
-
-  // Les dossiers de l'annee se presentent d'eux-memes tant qu'aucun
-  // arbitrage n'a ete rendu — sauf si le joueur les a ecartes pour
-  // examiner la ville, ou si l'introduction est encore a l'ecran.
-  useEffect(() => {
-    if (intro || state.epilogueOpen || state.dossiersOpen) return;
-    if (!actions.blocked()) return;
-    if (state.dossiersDismissed === state.currentYear) return;
-    const t = window.setTimeout(() => actions.openDossiers(), 420);
-    return () => window.clearTimeout(t);
-  }, [
-    intro,
-    state.currentYear,
-    state.enacted,
-    state.epilogueOpen,
-    state.dossiersOpen,
-    state.dossiersDismissed,
-  ]);
 
   const openDecisions = useCallback(() => {
     setPaletteOpen(false);
@@ -206,6 +189,13 @@ export default function App() {
         </main>
 
         <Timeline />
+
+        <AnimatePresence>
+          {!intro &&
+            !state.dossiersOpen &&
+            !state.epilogueOpen &&
+            actions.blocked() && <DecisionPrompt key="prompt" />}
+        </AnimatePresence>
       </div>
 
       <AnimatePresence>
