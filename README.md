@@ -2,7 +2,10 @@
 
 Expérience web interactive : pilotez la métropole fictive de **Méridienne** et
 projetez vingt ans de conséquences (2049 → 2069) sur sept indicateurs, six
-quartiers et une trame narrative générée par la simulation.
+quartiers et une trame narrative générée par la simulation. La ville est rendue
+en **3D temps réel** (three.js).
+
+**En ligne : https://leiaperch.github.io/nexus-2049/**
 
 ---
 
@@ -49,8 +52,9 @@ App                          # layout, clavier global, horloge, easter egg
 ├─ Intro                     # séquence d'ouverture < 15 s, désactivable
 ├─ TopBar                    # wordmark, indice de santé urbaine, mode, undo/redo
 ├─ stage (mode = ops)
-│  ├─ CityMap                # <canvas> : quartiers, hachures de densité,
-│  │  │                        végétation, flux animés, légende, couches
+│  ├─ CityScene              # three.js : bâtiments extrudés (hauteur = densité),
+│  │  │                        canopée, fleuve, flux animés, IBL + ombres.
+│  │  │                        Quartiers = boutons focusables projetés en 2D.
 │  │  └─ DistrictInspector   # panneau quartier (avant/après vs 2049)
 │  └─ stage-rail
 │     ├─ IndicatorPanel      # 7 indicateurs : jauge segmentée + Sparkline
@@ -68,7 +72,7 @@ App                          # layout, clavier global, horloge, easter egg
 
 sim/   types · data (ville, indicateurs, 9 politiques) · engine (projection pure)
 store/ store externe (useSyncExternalStore) + undo/redo
-lib/   format · colors (rampes cartographiques) · audio (WebAudio procédural)
+lib/   format · colors (rampes) · audio (WebAudio) · scene3d (géométrie procédurale three.js)
 hooks/ useClock · useCurrentYear
 ```
 
@@ -83,7 +87,12 @@ npm run dev
 Puis ouvrir l'URL affichée (par défaut `http://localhost:5173`).
 Build de production : `npm run build` puis `npm run preview`.
 
-Prérequis : Node 18+. Aucun backend, aucune API, aucune clé.
+Prérequis : Node 18+ et un navigateur WebGL. Aucun backend, aucune API, aucune clé.
+
+**Déploiement** : chaque push sur `main` déclenche le workflow
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) qui build et publie
+sur GitHub Pages (`base: /nexus-2049/` en production). Site :
+https://leiaperch.github.io/nexus-2049/
 
 ## 5. Raccourcis clavier
 
@@ -124,9 +133,10 @@ Prérequis : Node 18+. Aucun backend, aucune API, aucune clé.
 
 ## 7. Limites techniques (honnêtes)
 
-- La carte est une **représentation cartographique schématique** (cadastre
-  stylisé), pas une vue 3D ni un rendu urbain photoréaliste — choix assumé de
-  direction artistique, pas une maquette.
+- La ville est une **maquette 3D low-poly générée en code** (aucun asset), pas un
+  rendu urbain photoréaliste — choix assumé de direction artistique. Elle exige
+  WebGL ; sur GPU logiciel (rasterizer CPU) la première compilation des shaders
+  peut prendre quelques secondes.
 - Le modèle de simulation est **plausible mais non calibré** sur des données
   réelles : il vise la cohérence des arbitrages, pas la prévision.
 - Pas de persistance : recharger la page réinitialise la trajectoire (état en mémoire).
