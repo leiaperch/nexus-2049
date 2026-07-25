@@ -163,17 +163,34 @@ function baselineDrift(ind: Indicators, year: number) {
   // climatique croissante. Le socle est calibre pour financer environ un
   // arbitrage par an : bien choisir laisse une marge, empiler les gros
   // investissements creuse la dette.
-  const revenue = 76 + (ind.qol - 58) * 0.45 + (ind.trust - 55) * 0.45;
-  const debtService = ind.budget < 0 ? -ind.budget * 0.045 : 0;
+  const debt = Math.max(0, -ind.budget);
+  // Degradation de la signature : plus la dette est lourde, plus les
+  // recettes se contractent (perte de base fiscale, mise sous tutelle
+  // des investissements, prets a taux punitif).
+  const downgrade = Math.min(0.45, debt / 2200);
+  const revenue =
+    (76 + (ind.qol - 58) * 0.45 + (ind.trust - 55) * 0.45) * (1 - downgrade);
+  const debtService = debt * 0.075;
   const charges =
     24 + (year >= 2060 ? 8 : 0) + Math.max(0, ind.carbon - 12) * 0.6 + debtService;
   ind.budget += revenue - charges;
+
+  // — Austerite —
+  // Passe un certain endettement, la collectivite coupe dans le service
+  // rendu : la population le voit, la confiance decroche, et le credit
+  // politique se tarit. C'est le mecanisme qui rend la faillite
+  // auto-entretenue plutot que simplement genante.
+  const austerity = debt > 150;
+  if (austerity) {
+    ind.trust -= 1.4 + Math.min(2.5, debt / 400);
+    ind.qol -= 0.5 + Math.min(1.5, debt / 700);
+  }
 
   // — Capital politique —
   // Se reconstitue chaque annee, d'autant plus vite que la population
   // adhere. Une ville defiante ne renouvelle presque plus le credit de
   // son executif : les arbitrages contestes deviennent impossibles.
-  ind.capital += 12 + (ind.trust - 55) * 0.16;
+  ind.capital += (12 + (ind.trust - 55) * 0.16) * (austerity ? 0.45 : 1);
 }
 
 /** Evenements de fond declenches par franchissement de seuils. */
@@ -526,8 +543,13 @@ export function isYearResolved(
   return enacted.some((e) => e.year === year);
 }
 
-/** Plafond d'endettement au-dela duquel plus rien n'est finançable. */
-export const DEBT_CEILING = -450;
+/**
+ * Plafond d'endettement. Volontairement lointain : la collectivite doit
+ * pouvoir s'engager au-dela du raisonnable. Un plafond serre empecherait
+ * la faute plutot que de la sanctionner, et il n'y aurait jamais de
+ * scenario catastrophe.
+ */
+export const DEBT_CEILING = -1000;
 
 /**
  * Un dossier peut-il etre arbitre compte tenu des ressources ?
