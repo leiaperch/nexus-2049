@@ -3,8 +3,9 @@ import type { DistrictState } from "../sim/types";
 
 // ————————————————————————————————————————————————————————————————
 // Geometrie et matieres procedurales de Meridienne (aucun asset).
-// Batiments fusionnes par matiere, textures PBR dessinees au canvas,
-// fenetres eclairees en crepuscule, reliefs etages, repere par decision.
+// Batiments implantes en ilots (rues + fronts bâtis + coeurs d'ilot),
+// repartis sur plusieurs matieres (beton, verre, brique, industriel,
+// eteint) pour casser l'uniformite. Fusion par matiere.
 // ————————————————————————————————————————————————————————————————
 
 export const WORLD_W = 128;
@@ -29,7 +30,6 @@ export const FLOW_ROUTES: Record<string, string[]> = {
   "cli-density": ["solferine", "ferronnerie"],
 };
 
-// Reseau viaire permanent (adjacence de quartiers).
 export const ROAD_LINKS: [string, string][] = [
   ["quai-nord", "ferronnerie"],
   ["ferronnerie", "solferine"],
@@ -64,7 +64,7 @@ export function pointInPoly(px: number, py: number, poly: [number, number][]) {
   return inside;
 }
 
-// —————————————————————————— Textures ——————————————————————————
+// —————————————————————————— Textures utilitaires ——————————————————————————
 
 function sobelNormal(height: Float32Array, size: number, strength: number) {
   const c = document.createElement("canvas");
@@ -73,7 +73,7 @@ function sobelNormal(height: Float32Array, size: number, strength: number) {
   const img = ctx.createImageData(size, size);
   const at = (x: number, y: number) =>
     height[((y + size) % size) * size + ((x + size) % size)];
-  for (let y = 0; y < size; y++) {
+  for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
       const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
@@ -84,94 +84,206 @@ function sobelNormal(height: Float32Array, size: number, strength: number) {
       img.data[i + 2] = (1 / len) * 0.5 * 255 + 128;
       img.data[i + 3] = 255;
     }
-  }
   ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   return tex;
 }
 
-function tuneAniso(t: THREE.Texture, renderer: THREE.WebGLRenderer) {
-  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+function aniso(t: THREE.Texture, r: THREE.WebGLRenderer) {
+  t.anisotropy = r.capabilities.getMaxAnisotropy();
 }
 
-/** Façade : albedo (trame vitree), relief (normal), emissif (fenetres allumees). */
-export function makeFacadeTextures(renderer: THREE.WebGLRenderer) {
-  const S = 256;
-  const cols = 8;
-  const rows = 8;
-  const cw = S / cols;
-  const ch = S / rows;
+// —————————————————————————— Façades par matiere ——————————————————————————
 
-  // albedo
+export type Bucket = "concrete" | "glass" | "brick" | "industrial" | "dark";
+export const BUILDING_BUCKETS: Bucket[] = [
+  "concrete",
+  "glass",
+  "brick",
+  "industrial",
+  "dark",
+];
+
+interface FacadeOpts {
+  base: string;
+  window: string;
+  cols: number;
+  rows: number;
+  glass: boolean;
+  brick: boolean;
+  litFrac: number;
+  lit: [number, number, number];
+  normalStrength: number;
+}
+
+const FACADE_OPTS: Record<Bucket, FacadeOpts> = {
+  concrete: {
+    base: "#8f8c83",
+    window: "#414a52",
+    cols: 6,
+    rows: 7,
+    glass: false,
+    brick: false,
+    litFrac: 0.16,
+    lit: [255, 206, 140],
+    normalStrength: 2.0,
+  },
+  glass: {
+    base: "#313d47",
+    window: "#4a5a65",
+    cols: 8,
+    rows: 10,
+    glass: true,
+    brick: false,
+    litFrac: 0.42,
+    lit: [255, 224, 176],
+    normalStrength: 1.2,
+  },
+  brick: {
+    base: "#7a463a",
+    window: "#241f22",
+    cols: 5,
+    rows: 6,
+    glass: false,
+    brick: true,
+    litFrac: 0.09,
+    lit: [246, 190, 120],
+    normalStrength: 1.6,
+  },
+  industrial: {
+    base: "#565a5c",
+    window: "#31363a",
+    cols: 4,
+    rows: 4,
+    glass: false,
+    brick: false,
+    litFrac: 0.05,
+    lit: [250, 210, 150],
+    normalStrength: 1.4,
+  },
+  dark: {
+    base: "#3c4043",
+    window: "#22262b",
+    cols: 7,
+    rows: 8,
+    glass: false,
+    brick: false,
+    litFrac: 0.1,
+    lit: [240, 196, 130],
+    normalStrength: 1.8,
+  },
+};
+
+function drawFacade(o: FacadeOpts, seed: number) {
+  const S = 256;
+  const cw = S / o.cols;
+  const ch = S / o.rows;
+  const rng = mulberry32(seed);
+
   const a = document.createElement("canvas");
   a.width = a.height = S;
   const actx = a.getContext("2d")!;
-  actx.fillStyle = "#8b8880";
+  actx.fillStyle = o.base;
   actx.fillRect(0, 0, S, S);
-  // trame beton legere
-  const rng = mulberry32(7);
-  for (let i = 0; i < 1600; i++) {
-    const g = 120 + rng() * 40;
-    actx.fillStyle = `rgba(${g},${g},${g - 6},0.05)`;
-    actx.fillRect(rng() * S, rng() * S, 2, 2);
-  }
-  // vitrages
+
   const height = new Float32Array(S * S);
+  for (let i = 0; i < S * S; i++) height[i] = 0.8;
+
+  if (o.brick) {
+    // assises de briques
+    const bh = 6;
+    for (let y = 0; y < S; y += bh) {
+      const off = (Math.floor(y / bh) % 2) * 8;
+      for (let x = -8; x < S; x += 16) {
+        const shade = 0.85 + rng() * 0.3;
+        actx.fillStyle = `rgb(${Math.round(122 * shade)},${Math.round(
+          70 * shade,
+        )},${Math.round(58 * shade)})`;
+        actx.fillRect(x + off + 1, y + 1, 14, bh - 2);
+      }
+      actx.fillStyle = "rgba(40,30,26,0.5)";
+      actx.fillRect(0, y, S, 1);
+    }
+  } else {
+    for (let i = 0; i < 1400; i++) {
+      const g = rng() * 30 - 15;
+      actx.fillStyle = `rgba(${128 + g},${128 + g},${124 + g},0.05)`;
+      actx.fillRect(rng() * S, rng() * S, 2, 2);
+    }
+  }
+
   const em = document.createElement("canvas");
   em.width = em.height = S;
   const ectx = em.getContext("2d")!;
   ectx.fillStyle = "#000";
   ectx.fillRect(0, 0, S, S);
-  const litRng = mulberry32(41);
-  for (let r = 0; r < rows; r++) {
-    for (let cc = 0; cc < cols; cc++) {
-      const x = cc * cw + 2;
-      const y = r * ch + 2;
-      const w = cw - 4;
-      const h = ch - 5;
-      // vitre (albedo sombre reflechissant)
-      actx.fillStyle = "#3a444d";
+
+  for (let r = 0; r < o.rows; r++) {
+    for (let c = 0; c < o.cols; c++) {
+      const inset = o.glass ? 1.5 : Math.min(cw, ch) * 0.24;
+      const x = c * cw + inset;
+      const y = r * ch + inset;
+      const w = cw - inset * 2;
+      const h = ch - inset * 2 - (o.glass ? 1 : 0);
+      // vitre
+      actx.fillStyle = o.window;
       actx.fillRect(x, y, w, h);
-      actx.fillStyle = "rgba(120,140,150,0.25)";
-      actx.fillRect(x, y, w, 2);
-      // relief : creux de la vitre, saillie du meneau
+      if (o.glass) {
+        actx.fillStyle = "rgba(140,165,175,0.22)";
+        actx.fillRect(x, y, w, Math.max(1, h * 0.3));
+      }
+      // relief : creux de la baie
       for (let py = 0; py < ch; py++)
         for (let px = 0; px < cw; px++) {
-          const gx = cc * cw + px;
+          const gx = c * cw + px;
           const gy = r * ch + py;
-          const inWin = px >= 2 && px < cw - 2 && py >= 2 && py < ch - 3;
-          height[gy * S + gx] = inWin ? 0.15 : 0.85;
+          if (gx >= S || gy >= S) continue;
+          const inWin = px >= inset && px < cw - inset && py >= inset && py < ch - inset;
+          height[gy * S + gx] = inWin ? 0.2 : 0.85;
         }
-      // emissif : une partie des fenetres allumee
-      if (litRng() > 0.62) {
-        const warm = litRng();
-        const rr = 255;
-        const gg = 200 + warm * 40;
-        const bb = 120 + warm * 70;
-        ectx.fillStyle = `rgb(${rr},${Math.round(gg)},${Math.round(bb)})`;
+      // eclairage
+      if (rng() > 1 - o.litFrac) {
+        const k = 0.75 + rng() * 0.25;
+        ectx.fillStyle = `rgb(${Math.round(o.lit[0] * k)},${Math.round(
+          o.lit[1] * k,
+        )},${Math.round(o.lit[2] * k)})`;
         ectx.fillRect(x, y, w, h);
       }
     }
   }
+
   const albedo = new THREE.CanvasTexture(a);
   albedo.colorSpace = THREE.SRGBColorSpace;
   albedo.wrapS = albedo.wrapT = THREE.RepeatWrapping;
   const emissive = new THREE.CanvasTexture(em);
   emissive.colorSpace = THREE.SRGBColorSpace;
   emissive.wrapS = emissive.wrapT = THREE.RepeatWrapping;
-  const normal = sobelNormal(height, S, 2.2);
-  [albedo, emissive, normal].forEach((t) => tuneAniso(t, renderer));
+  const normal = sobelNormal(height, S, o.normalStrength);
   return { albedo, emissive, normal };
 }
 
-/** Bruit de beton clair pour le relief des sols. */
+export function makeBuildingTextures(renderer: THREE.WebGLRenderer) {
+  const out = {} as Record<
+    Bucket,
+    { albedo: THREE.Texture; emissive: THREE.Texture; normal: THREE.Texture }
+  >;
+  let seed = 11;
+  for (const b of BUILDING_BUCKETS) {
+    const set = drawFacade(FACADE_OPTS[b], seed++);
+    aniso(set.albedo, renderer);
+    aniso(set.emissive, renderer);
+    aniso(set.normal, renderer);
+    out[b] = set;
+  }
+  return out;
+}
+
 export function makeConcreteNormal(renderer: THREE.WebGLRenderer) {
   const S = 128;
   const rng = mulberry32(3);
   const height = new Float32Array(S * S);
   for (let i = 0; i < S * S; i++) height[i] = rng();
-  // lissage leger
   const sm = new Float32Array(S * S);
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
@@ -182,30 +294,26 @@ export function makeConcreteNormal(renderer: THREE.WebGLRenderer) {
       sm[y * S + x] = s / 9;
     }
   const n = sobelNormal(sm, S, 0.5);
-  tuneAniso(n, renderer);
+  aniso(n, renderer);
   return n;
 }
 
-/** Normal map d'eau (rides) pour un fleuve anime. */
 export function makeWaterNormal(renderer: THREE.WebGLRenderer) {
   const S = 128;
   const height = new Float32Array(S * S);
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++)
       height[y * S + x] =
-        Math.sin(x * 0.3) * 0.5 +
-        Math.sin(y * 0.21 + 1.3) * 0.5 +
-        Math.sin((x + y) * 0.15) * 0.3;
+        Math.sin(x * 0.3) * 0.5 + Math.sin(y * 0.21 + 1.3) * 0.5 + Math.sin((x + y) * 0.15) * 0.3;
   const n = sobelNormal(height, S, 1.4);
   n.repeat.set(6, 5);
-  tuneAniso(n, renderer);
+  aniso(n, renderer);
   return n;
 }
 
-/** Chaussee : asphalte sombre + ligne axiale pointillee. */
 export function makeRoadTexture(renderer: THREE.WebGLRenderer) {
-  const W = 32;
-  const H = 128;
+  const W = 32,
+    H = 128;
   const c = document.createElement("canvas");
   c.width = W;
   c.height = H;
@@ -223,11 +331,11 @@ export function makeRoadTexture(renderer: THREE.WebGLRenderer) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  tuneAniso(t, renderer);
+  aniso(t, renderer);
   return t;
 }
 
-// —————————————————————————— Sinks / primitives ——————————————————————————
+// —————————————————————————— Primitives ——————————————————————————
 
 export interface Sink {
   pos: number[];
@@ -237,8 +345,6 @@ export interface Sink {
 }
 export const newSink = (): Sink => ({ pos: [], nor: [], uv: [], col: [] });
 
-/** Boite avec UV proportionnelles a la taille des faces (uvk = repet./unite).
- *  ry : rotation autour de Y (radians) pour casser la trame orthogonale. */
 export function addBox(
   s: Sink,
   cx: number,
@@ -252,6 +358,8 @@ export function addBox(
   b: number,
   uvk = 0.16,
   ry = 0,
+  uOff = 0,
+  vOff = 0,
 ) {
   const co = Math.cos(ry);
   const si = Math.sin(ry);
@@ -292,19 +400,18 @@ export function addBox(
     [[4, 5, 1, 0], [0, -1, 0], sx, sz],
   ];
   for (const [idx, n, fw, fh] of faces) {
-    const corners = idx;
     const uw = fw * uvk;
     const uh = fh * uvk;
     const uvc = [
-      [0, 0],
-      [uw, 0],
-      [uw, uh],
-      [0, uh],
+      [uOff, vOff],
+      [uOff + uw, vOff],
+      [uOff + uw, vOff + uh],
+      [uOff, vOff + uh],
     ];
     const [rnx, rnz] = rn(n[0], n[2]);
     const tri = [0, 1, 2, 0, 2, 3];
     for (const t of tri) {
-      const vi = corners[t];
+      const vi = idx[t];
       s.pos.push(v[vi][0], v[vi][1], v[vi][2]);
       s.nor.push(rnx, n[1], rnz);
       s.uv.push(uvc[t][0], uvc[t][1]);
@@ -313,7 +420,6 @@ export function addBox(
   }
 }
 
-/** Toit a deux pentes (prisme triangulaire), faitage le long de X. */
 export function addGable(
   s: Sink,
   cx: number,
@@ -341,7 +447,6 @@ export function addGable(
     const [rx, rz] = rot(x, z);
     return [rx, y, rz] as [number, number, number];
   };
-  // sommets : base (4) + faitage (2)
   const bl0 = P(x0, cy, z0),
     bl1 = P(x1, cy, z0),
     br1 = P(x1, cy, z1),
@@ -351,7 +456,7 @@ export function addGable(
   const push = (p: number[], n: number[]) => {
     s.pos.push(p[0], p[1], p[2]);
     s.nor.push(n[0], n[1], n[2]);
-    s.uv.push(0, 0);
+    s.uv.push(0.02, 0.02);
     s.col.push(r, g, b);
   };
   const face = (a: number[], b2: number[], c: number[]) => {
@@ -365,24 +470,18 @@ export function addGable(
       ny = uz * vx - ux * vz,
       nz = ux * vy - uy * vx;
     const l = Math.hypot(nx, ny, nz) || 1;
-    nx /= l;
-    ny /= l;
-    nz /= l;
-    push(a, [nx, ny, nz]);
-    push(b2, [nx, ny, nz]);
-    push(c, [nx, ny, nz]);
+    push(a, [nx / l, ny / l, nz / l]);
+    push(b2, [nx / l, ny / l, nz / l]);
+    push(c, [nx / l, ny / l, nz / l]);
   };
-  // pente avant (z0) et arriere (z1)
   face(bl0, bl1, rg0);
   face(br1, br0, rg1);
-  // les deux pans : quads (bas -> faitage)
   face(bl0, rg0, rg1);
   face(bl0, rg1, br0);
   face(bl1, br1, rg1);
   face(bl1, rg1, rg0);
 }
 
-/** Tour cylindrique (verre) avec UV enroulees et calotte. */
 export function addCylinder(
   s: Sink,
   cx: number,
@@ -396,6 +495,7 @@ export function addCylinder(
   g: number,
   b: number,
   uvk = 0.16,
+  uOff = 0,
 ) {
   const y0 = cy,
     y1 = cy + h;
@@ -413,8 +513,8 @@ export function addCylinder(
     const p01 = [cx + c0 * rTop, y1, cz + s0 * rTop];
     const n0 = [c0, 0, s0],
       n1 = [c1, 0, s1];
-    const u0 = (i / seg) * circ * uvk,
-      u1 = ((i + 1) / seg) * circ * uvk,
+    const u0 = uOff + (i / seg) * circ * uvk,
+      u1 = uOff + ((i + 1) / seg) * circ * uvk,
       vh = h * uvk;
     const emit = (p: number[], n: number[], u: number, vv: number) => {
       s.pos.push(p[0], p[1], p[2]);
@@ -428,11 +528,10 @@ export function addCylinder(
     emit(p00, n0, u0, 0);
     emit(p11, n1, u1, vh);
     emit(p01, n0, u0, vh);
-    // calotte
     const cap = (p: number[]) => {
       s.pos.push(p[0], p[1], p[2]);
       s.nor.push(0, 1, 0);
-      s.uv.push(0, 0);
+      s.uv.push(0.02, 0.02);
       s.col.push(r * 0.85, g * 0.85, b * 0.85);
     };
     cap([cx, y1, cz]);
@@ -441,161 +540,314 @@ export function addCylinder(
   }
 }
 
-export function sinkToGeometry(s: Sink): THREE.BufferGeometry {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(s.pos, 3));
-  g.setAttribute("normal", new THREE.Float32BufferAttribute(s.nor, 3));
-  g.setAttribute("uv", new THREE.Float32BufferAttribute(s.uv, 2));
-  g.setAttribute("color", new THREE.Float32BufferAttribute(s.col, 3));
-  return g;
-}
-
-// —————————————————————————— Ville ——————————————————————————
+// —————————————————————————— Implantation urbaine ——————————————————————————
 
 interface FnStyle {
   hMin: number;
   hMax: number;
   color: [number, number, number];
-  fill: number;
-  spacing: number;
-  tiered: boolean;
+  block: number; // taille d'ilot
+  blockFill: number; // prob. d'occuper un ilot
+  buckets: [Bucket, number][];
+  gableRoofs: boolean;
 }
 const FN_STYLE: Record<DistrictState["fn"], FnStyle> = {
-  portuaire: { hMin: 2.5, hMax: 9, color: [0.4, 0.4, 0.38], fill: 0.5, spacing: 6.4, tiered: false },
-  affaires: { hMin: 9, hMax: 38, color: [0.46, 0.5, 0.56], fill: 0.85, spacing: 5.6, tiered: true },
-  residentiel: { hMin: 6, hMax: 19, color: [0.56, 0.52, 0.46], fill: 0.82, spacing: 5.0, tiered: false },
-  historique: { hMin: 4, hMax: 11, color: [0.6, 0.54, 0.44], fill: 0.74, spacing: 4.4, tiered: false },
-  mixte: { hMin: 5, hMax: 24, color: [0.5, 0.53, 0.5], fill: 0.62, spacing: 5.2, tiered: true },
-  humide: { hMin: 2, hMax: 5, color: [0.42, 0.46, 0.4], fill: 0.14, spacing: 8, tiered: false },
+  portuaire: {
+    hMin: 3,
+    hMax: 9,
+    color: [0.5, 0.5, 0.48],
+    block: 14,
+    blockFill: 0.78,
+    buckets: [["industrial", 0.62], ["dark", 0.26], ["concrete", 0.12]],
+    gableRoofs: true,
+  },
+  affaires: {
+    hMin: 8,
+    hMax: 26,
+    color: [0.6, 0.63, 0.68],
+    block: 11,
+    blockFill: 1,
+    buckets: [["glass", 0.44], ["concrete", 0.3], ["dark", 0.26]],
+    gableRoofs: false,
+  },
+  residentiel: {
+    hMin: 6,
+    hMax: 15,
+    color: [0.66, 0.62, 0.55],
+    block: 11,
+    blockFill: 1,
+    buckets: [["concrete", 0.44], ["brick", 0.26], ["dark", 0.3]],
+    gableRoofs: false,
+  },
+  historique: {
+    hMin: 5,
+    hMax: 10,
+    color: [0.7, 0.62, 0.5],
+    block: 9,
+    blockFill: 1,
+    buckets: [["brick", 0.56], ["concrete", 0.22], ["dark", 0.22]],
+    gableRoofs: true,
+  },
+  mixte: {
+    hMin: 5,
+    hMax: 18,
+    color: [0.6, 0.62, 0.58],
+    block: 12,
+    blockFill: 0.94,
+    buckets: [["glass", 0.28], ["concrete", 0.36], ["brick", 0.16], ["dark", 0.2]],
+    gableRoofs: false,
+  },
+  humide: {
+    hMin: 3,
+    hMax: 6,
+    color: [0.52, 0.56, 0.48],
+    block: 18,
+    blockFill: 0.4,
+    buckets: [["brick", 0.4], ["dark", 0.4], ["concrete", 0.2]],
+    gableRoofs: true,
+  },
 };
 
-/** Batiments de tous les quartiers : gabarits varies pilotes par la densite.
- *  Archetypes : bloc oriente, tour a retraits, tour ronde, socle + tour,
- *  batisse a toit en pente, hangar/cheminee portuaire. */
-export function buildBuildings(districts: DistrictState[]): THREE.BufferGeometry {
-  const s = newSink();
-  let seedBase = 1;
+function hashAngle(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return ((h >>> 0) / 4294967296) * Math.PI;
+}
+
+function pickBucket(buckets: [Bucket, number][], r: number): Bucket {
+  let acc = 0;
+  for (const [b, w] of buckets) {
+    acc += w;
+    if (r <= acc) return b;
+  }
+  return buckets[buckets.length - 1][0];
+}
+
+/**
+ * Implante les batiments en ilots : rues, fronts bâtis continus le long
+ * des ilots, coeurs d'ilot laisses vides. Chaque quartier a sa propre
+ * orientation de trame ; chaque batiment tire une matiere et un gabarit.
+ * Renvoie une geometrie par matiere (fusion).
+ */
+export function buildBuildings(
+  districts: DistrictState[],
+): Record<Bucket, THREE.BufferGeometry> {
+  const sinks: Record<Bucket, Sink> = {
+    concrete: newSink(),
+    glass: newSink(),
+    brick: newSink(),
+    industrial: newSink(),
+    dark: newSink(),
+  };
+
   for (const d of districts) {
     const style = FN_STYLE[d.fn];
-    const rng = mulberry32((seedBase++ * 2654435761) ^ Math.round(d.density * 7));
+    const rng = mulberry32((d.id.length * 2654435761) ^ Math.round(d.density * 13));
     const densF = d.density / 100;
-    const fill = Math.min(0.96, style.fill + densF * 0.22);
-    const spacing = style.spacing * (1 - densF * 0.16);
-    const xs = d.poly.map((p) => p[0]);
-    const ys = d.poly.map((p) => p[1]);
-    const minx = Math.min(...xs),
-      maxx = Math.max(...xs),
-      miny = Math.min(...ys),
-      maxy = Math.max(...ys);
-    const stepX = spacing / WORLD_W;
-    const stepZ = spacing / WORLD_D;
-    for (let nx = minx; nx <= maxx; nx += stepX) {
-      for (let ny = miny; ny <= maxy; ny += stepZ) {
-        if (rng() > fill) continue;
-        const jx = nx + (rng() - 0.5) * stepX * 0.6;
-        const jy = ny + (rng() - 0.5) * stepZ * 0.6;
-        if (!pointInPoly(jx, jy, d.poly)) continue;
-        const [wx, wz] = toWorld(jx, jy);
-        const foot = spacing * (0.42 + rng() * 0.3);
-        const foot2 = spacing * (0.42 + rng() * 0.3);
-        const hBase = style.hMin + (style.hMax - style.hMin) * densF;
-        const h = Math.max(2, hBase * (0.5 + rng() * 0.95));
-        const shade = 0.82 + rng() * 0.3;
-        const cr = style.color[0] * shade;
-        const cg = style.color[1] * shade;
-        const cb = style.color[2] * shade;
-        const ry = (rng() - 0.5) * 0.7; // orientation variee
-        const tall = h > style.hMax * 0.5;
-        const p = rng();
+    const [cwx, cwz] = toWorld(d.center[0], d.center[1]);
+    const theta = hashAngle(d.id);
+    const co = Math.cos(theta);
+    const si = Math.sin(theta);
+    // monde -> local (repere de l'ilot), et retour
+    const toLocal = (x: number, z: number): [number, number] => {
+      const dx = x - cwx;
+      const dz = z - cwz;
+      return [dx * co + dz * si, -dx * si + dz * co];
+    };
+    const toWorldL = (lx: number, lz: number): [number, number] => [
+      cwx + lx * co - lz * si,
+      cwz + lx * si + lz * co,
+    ];
 
-        if (d.fn === "portuaire") {
-          // hangars bas larges + cheminees
-          if (p < 0.24) {
-            addCylinder(s, wx, 0, wz, foot * 0.22, foot * 0.28, h * 1.5 + 4, 8, cr, cg, cb, 0.1);
-          } else {
-            addBox(s, wx, 0, wz, foot * 1.15, Math.min(h, 6), foot2, cr, cg, cb, 0.16, ry);
-            if (rng() > 0.6)
-              addGable(s, wx, Math.min(h, 6), wz, foot * 1.15, 1.4, foot2, cr * 0.9, cg * 0.9, cb * 0.9, ry);
-          }
-        } else if (style.tiered && tall) {
-          if (p < 0.28) {
-            // tour ronde (verre)
-            const seg = 12;
-            addCylinder(s, wx, 0, wz, foot * 0.34, foot * 0.42, h, seg, cr, cg, cb);
-            addCylinder(s, wx, h, wz, foot * 0.2, foot * 0.34, 1.5, seg, cr * 0.8, cg * 0.8, cb * 0.8);
-          } else if (p < 0.62) {
-            // socle + tour elancee
-            const podium = h * (0.22 + rng() * 0.12);
-            addBox(s, wx, 0, wz, foot * 1.2, podium, foot2 * 1.2, cr * 0.92, cg * 0.92, cb * 0.92, 0.16, ry);
-            addBox(s, wx, podium, wz, foot * 0.62, h - podium, foot2 * 0.62, cr, cg, cb, 0.16, ry);
-            addBox(s, wx, h, wz, foot * 0.3, 1 + rng() * 2, foot2 * 0.3, cr * 0.8, cg * 0.8, cb * 0.8, 0.16, ry);
-            if (rng() > 0.5) addBox(s, wx, h + 1.5, wz, 0.3, 2 + rng() * 3, 0.3, 0.18, 0.18, 0.18, 0.16, ry);
-          } else {
-            // tour a retraits
-            const tiers = 2 + Math.floor(rng() * 2);
-            let y = 0;
-            let fw = foot;
-            let fd = foot2;
-            for (let ti = 0; ti < tiers; ti++) {
-              const th = (h / tiers) * (0.7 + rng() * 0.5);
-              addBox(s, wx, y, wz, fw, th, fd, cr, cg, cb, 0.16, ry);
-              y += th;
-              fw *= 0.72 + rng() * 0.12;
-              fd *= 0.72 + rng() * 0.12;
-            }
-            addBox(s, wx, y, wz, fw * 0.5, 1 + rng() * 2, fd * 0.5, cr * 0.8, cg * 0.8, cb * 0.8, 0.16, ry);
-          }
-        } else if ((d.fn === "historique" || d.fn === "humide") && p < 0.7) {
-          // batisse a toit en pente
-          addBox(s, wx, 0, wz, foot, h, foot2, cr, cg, cb, 0.16, ry);
-          addGable(s, wx, h, wz, foot, foot2 * 0.42 + 1, foot2, cr * 0.86, cg * 0.8, cb * 0.72, ry);
-        } else if (p < 0.2) {
-          // bloc en L (deux corps)
-          addBox(s, wx, 0, wz, foot, h, foot2 * 0.55, cr, cg, cb, 0.16, ry);
-          addBox(s, wx + foot * 0.28, 0, wz + foot2 * 0.28, foot * 0.5, h * (0.7 + rng() * 0.3), foot2, cr, cg, cb, 0.16, ry);
-        } else {
-          // bloc simple oriente + edicule
-          addBox(s, wx, 0, wz, foot, h, foot2, cr, cg, cb, 0.16, ry);
-          if (rng() > 0.5)
-            addBox(
-              s,
-              wx + (rng() - 0.5) * foot * 0.3,
-              h,
-              wz + (rng() - 0.5) * foot2 * 0.3,
-              foot * (0.3 + rng() * 0.3),
-              0.6 + rng() * 1.6,
-              foot2 * (0.3 + rng() * 0.3),
-              cr * 0.75,
-              cg * 0.75,
-              cb * 0.75,
-              0.16,
-              ry,
+    // bbox locale du polygone
+    let lminX = Infinity,
+      lmaxX = -Infinity,
+      lminZ = Infinity,
+      lmaxZ = -Infinity;
+    for (const [nx, ny] of d.poly) {
+      const [wx, wz] = toWorld(nx, ny);
+      const [lx, lz] = toLocal(wx, wz);
+      lminX = Math.min(lminX, lx);
+      lmaxX = Math.max(lmaxX, lx);
+      lminZ = Math.min(lminZ, lz);
+      lmaxZ = Math.max(lmaxZ, lz);
+    }
+
+    const block = style.block;
+    const street = 3.4;
+    const pitch = block + street;
+    const depth = 4.2; // profondeur du front bâti
+
+    const inside = (lx: number, lz: number) => {
+      const [wx, wz] = toWorldL(lx, lz);
+      return pointInPoly(wx / WORLD_W + 0.5, wz / WORLD_D + 0.5, d.poly);
+    };
+
+    const place = (
+      lcx: number,
+      lcz: number,
+      alongX: number,
+      alongZ: number,
+      corner: boolean,
+    ) => {
+      if (!inside(lcx, lcz)) return;
+      const [wx, wz] = toWorldL(lcx, lcz);
+      const bucket = pickBucket(style.buckets, rng());
+      const s = sinks[bucket];
+      const shade = 0.82 + rng() * 0.32;
+      const col = FN_STYLE[d.fn].color;
+      let cr = col[0] * shade,
+        cg = col[1] * shade,
+        cb = col[2] * shade;
+      if (bucket === "glass") {
+        cr = 0.32 * shade;
+        cg = 0.4 * shade;
+        cb = 0.5 * shade;
+      } else if (bucket === "brick") {
+        cr = 0.6 * shade;
+        cg = 0.38 * shade;
+        cb = 0.32 * shade;
+      } else if (bucket === "dark") {
+        cr *= 0.6;
+        cg *= 0.6;
+        cb *= 0.62;
+      }
+      const uOff = rng() * 4;
+      const vOff = rng() * 4;
+      const hBase = style.hMin + (style.hMax - style.hMin) * densF;
+      // distribution non uniforme : beaucoup de bas, quelques emergences
+      const u = rng();
+      const spike = u > 0.86 ? 1.5 + rng() * 0.9 : u > 0.6 ? 1.0 : 0.62 + rng() * 0.3;
+      let h = Math.max(2.5, hBase * spike);
+      if (corner && style.hMax > 14) h *= 1.15 + rng() * 0.25;
+
+      const sx = alongX;
+      const sz = alongZ;
+
+      if (bucket === "glass" && corner && h > 16) {
+        // tour ronde de verre en tete d'ilot
+        addCylinder(s, wx, 0, wz, Math.min(sx, sz) * 0.42, Math.min(sx, sz) * 0.5, h, 12, cr, cg, cb, 0.16, uOff);
+        addCylinder(s, wx, h, wz, Math.min(sx, sz) * 0.3, Math.min(sx, sz) * 0.42, 1.4, 12, cr * 0.8, cg * 0.8, cb * 0.8, 0.16, uOff);
+      } else {
+        addBox(s, wx, 0, wz, sx, h, sz, cr, cg, cb, 0.16, theta, uOff, vOff);
+        if (style.gableRoofs && rng() > 0.35) {
+          addGable(s, wx, h, wz, sx, Math.min(sx, sz) * 0.45 + 0.6, sz, cr * 0.85, cg * 0.8, cb * 0.72, theta);
+        } else if (rng() > 0.55) {
+          addBox(
+            s,
+            wx,
+            h,
+            wz,
+            sx * (0.3 + rng() * 0.3),
+            0.6 + rng() * 1.8,
+            sz * (0.3 + rng() * 0.3),
+            cr * 0.75,
+            cg * 0.75,
+            cb * 0.75,
+            0.16,
+            theta,
+            uOff,
+            vOff,
+          );
+          if (corner && h > 18 && rng() > 0.5)
+            addBox(s, wx, h + 1.6, wz, 0.3, 2 + rng() * 4, 0.3, 0.18, 0.18, 0.18, 0.16, theta);
+        }
+      }
+    };
+
+    // parcours des ilots
+    for (let bx = lminX; bx <= lmaxX; bx += pitch) {
+      for (let bz = lminZ; bz <= lmaxZ; bz += pitch) {
+        if (rng() > style.blockFill) continue;
+        const x0 = bx,
+          x1 = bx + block,
+          z0 = bz,
+          z1 = bz + block;
+        // Parcelles individuelles : chaque batiment est un lot distinct,
+        // separe par un joint, avec un leger recul variable sur rue.
+        const GAP = 0.7; // joint mitoyen
+        const rowX = (zEdge: number, dirIn: number, isCorner0: boolean) => {
+          let x = x0 + depth * 0.5;
+          let first = true;
+          while (x < x1 - depth * 0.5) {
+            const w = Math.min(3 + rng() * 2.6, x1 - depth * 0.5 - x);
+            if (w < 1.6) break;
+            const dd = depth * (0.75 + rng() * 0.45); // profondeur variable
+            const setback = rng() * 1.1; // recul sur rue
+            place(
+              x + w / 2,
+              zEdge + dirIn * (dd / 2 + setback),
+              w - GAP,
+              dd,
+              first && isCorner0,
             );
+            x += w;
+            first = false;
+          }
+        };
+        const rowZ = (xEdge: number, dirIn: number) => {
+          let z = z0 + depth * 0.5;
+          while (z < z1 - depth * 0.5) {
+            const w = Math.min(3 + rng() * 2.6, z1 - depth * 0.5 - z);
+            if (w < 1.6) break;
+            const dd = depth * (0.75 + rng() * 0.45);
+            const setback = rng() * 1.1;
+            place(xEdge + dirIn * (dd / 2 + setback), z + w / 2, dd, w - GAP, false);
+            z += w;
+          }
+        };
+        rowX(z0, 1, true);
+        rowX(z1, -1, false);
+        rowZ(x0, 1);
+        rowZ(x1, -1);
+        // coeur d'ilot : plots bas, plus frequents en secteur dense
+        const cores = densF > 0.6 ? 2 : 1;
+        for (let k = 0; k < cores; k++) {
+          if (rng() > 0.55) continue;
+          place(
+            (x0 + x1) / 2 + (rng() - 0.5) * block * 0.42,
+            (z0 + z1) / 2 + (rng() - 0.5) * block * 0.42,
+            3 + rng() * 2.6,
+            3 + rng() * 2.6,
+            false,
+          );
         }
       }
     }
   }
-  return sinkToGeometry(s);
+
+  const out = {} as Record<Bucket, THREE.BufferGeometry>;
+  for (const b of BUILDING_BUCKETS) {
+    const s = sinks[b];
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(s.pos, 3));
+    g.setAttribute("normal", new THREE.Float32BufferAttribute(s.nor, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(s.uv, 2));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(s.col, 3));
+    out[b] = g;
+  }
+  return out;
 }
 
-/** Reseau routier (rubans textures) reliant les quartiers. */
+// —————————————————————————— Voirie, mobilier, repere ——————————————————————————
+
 export function buildRoads(districts: DistrictState[]): THREE.BufferGeometry {
   const byId = Object.fromEntries(districts.map((d) => [d.id, d]));
   const pos: number[] = [];
   const nor: number[] = [];
   const uv: number[] = [];
-  const width = 2.6;
+  const width = 2.8;
   for (const [aId, bId] of ROAD_LINKS) {
     const a = byId[aId];
     const b = byId[bId];
     if (!a || !b) continue;
     const [ax, az] = toWorld(a.center[0], a.center[1]);
     const [bx, bz] = toWorld(b.center[0], b.center[1]);
-    const dx = bx - ax;
-    const dz = bz - az;
+    const dx = bx - ax,
+      dz = bz - az;
     const len = Math.hypot(dx, dz);
-    const px = (-dz / len) * width;
-    const pz = (dx / len) * width;
+    const px = (-dz / len) * width,
+      pz = (dx / len) * width;
     const reps = len / 8;
     const quad = [
       [ax + px, az + pz, 0, 0],
@@ -618,7 +870,6 @@ export function buildRoads(districts: DistrictState[]): THREE.BufferGeometry {
   return g;
 }
 
-/** Points lumineux (lampadaires) le long des routes -> maille emissive. */
 export function buildStreetLights(districts: DistrictState[]): THREE.BufferGeometry {
   const byId = Object.fromEntries(districts.map((d) => [d.id, d]));
   const s = newSink();
@@ -632,15 +883,12 @@ export function buildStreetLights(districts: DistrictState[]): THREE.BufferGeome
     const n = Math.max(2, Math.floor(len / 7));
     for (let i = 1; i < n; i++) {
       const t = i / n;
-      const x = ax + (bx - ax) * t;
-      const z = az + (bz - az) * t;
-      addBox(s, x + 3, 2.4, z, 0.35, 0.35, 0.35, 1.0, 0.82, 0.5);
+      addBox(s, ax + (bx - ax) * t + 3.4, 2.4, az + (bz - az) * t, 0.35, 0.35, 0.35, 1.0, 0.82, 0.5);
     }
   }
-  return sinkToGeometry(s);
+  return sinkToGeometryBasic(s);
 }
 
-/** Grues portuaires a Quai-Nord (structure metallique). */
 export function buildPortCranes(districts: DistrictState[]): THREE.BufferGeometry {
   const s = newSink();
   const quai = districts.find((d) => d.id === "quai-nord");
@@ -653,23 +901,27 @@ export function buildPortCranes(districts: DistrictState[]): THREE.BufferGeometr
     for (const [nx, ny] of spots) {
       const [x, z] = toWorld(nx, ny);
       const col: [number, number, number] = [0.55, 0.42, 0.2];
-      addBox(s, x - 1.5, 0, z, 0.6, 14, 0.6, ...col);
-      addBox(s, x + 1.5, 0, z, 0.6, 14, 0.6, ...col);
-      addBox(s, x, 14, z, 4, 0.8, 0.8, ...col);
-      addBox(s, x + 4, 13, z, 10, 0.5, 0.6, 0.4, 0.4, 0.42);
+      addBox(s, x - 1.5, 0, z, 0.6, 15, 0.6, ...col);
+      addBox(s, x + 1.5, 0, z, 0.6, 15, 0.6, ...col);
+      addBox(s, x, 15, z, 4, 0.8, 0.8, ...col);
+      addBox(s, x + 4, 14, z, 11, 0.5, 0.6, 0.4, 0.4, 0.42);
     }
   }
-  return sinkToGeometry(s);
+  return sinkToGeometryBasic(s);
 }
 
-/** Une eolienne (mat + nacelle + rotor). Rotor separe pour l'animer. */
+function sinkToGeometryBasic(s: Sink): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(s.pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(s.nor, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(s.uv, 2));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(s.col, 3));
+  return g;
+}
+
 export function makeTurbine(): { group: THREE.Group; rotor: THREE.Mesh } {
   const group = new THREE.Group();
-  const metal = new THREE.MeshStandardMaterial({
-    color: 0xd8d8d2,
-    roughness: 0.4,
-    metalness: 0.2,
-  });
+  const metal = new THREE.MeshStandardMaterial({ color: 0xd8d8d2, roughness: 0.4, metalness: 0.2 });
   const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.6, 16, 8), metal);
   tower.position.y = 8;
   tower.castShadow = true;
@@ -680,30 +932,13 @@ export function makeTurbine(): { group: THREE.Group; rotor: THREE.Mesh } {
   const blade = newSink();
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2;
-    // pale : boite fine orientee, empilee via addBox puis rotation par pos
     const bl = 7;
-    const bx = Math.cos(a) * bl * 0.5;
-    const by = Math.sin(a) * bl * 0.5;
-    // approx : petite boite le long de l'angle (subdivisions)
     for (let k = 0; k < 6; k++) {
       const t = k / 6;
-      addBox(
-        blade,
-        Math.cos(a) * bl * t,
-        Math.sin(a) * bl * t,
-        0,
-        0.5 - t * 0.35,
-        0.12,
-        0.12,
-        0.85,
-        0.85,
-        0.85,
-      );
+      addBox(blade, Math.cos(a) * bl * t, Math.sin(a) * bl * t, 0, 0.5 - t * 0.35, 0.12, 0.12, 0.85, 0.85, 0.85);
     }
-    void bx;
-    void by;
   }
-  rotor.geometry = sinkToGeometry(blade);
+  rotor.geometry = sinkToGeometryBasic(blade);
   rotor.position.set(1.1, 16, 0);
   rotor.rotation.y = Math.PI / 2;
   group.add(rotor);
@@ -717,6 +952,8 @@ export const TURBINE_SPOTS: [number, number][] = [
   [0.22, 0.04],
   [0.1, 0.12],
 ];
+
+// —————————————————————————— Vegetation, eau, sol ——————————————————————————
 
 export function treeMatrices(districts: DistrictState[]): {
   matrices: THREE.Matrix4[];
@@ -833,7 +1070,6 @@ export function districtGroundGeometry(poly: [number, number][]): THREE.BufferGe
   });
   const geo = new THREE.ShapeGeometry(shape);
   geo.rotateX(-Math.PI / 2);
-  // UV planaires pour le relief de sol
   const p = geo.attributes.position;
   const uv: number[] = [];
   for (let i = 0; i < p.count; i++) uv.push(p.getX(i) / 12, p.getZ(i) / 12);
@@ -841,7 +1077,6 @@ export function districtGroundGeometry(poly: [number, number][]): THREE.BufferGe
   return geo;
 }
 
-/** Ciel crepusculaire -> texture equirectangulaire (IBL). */
 export function skyTexture(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = 64;

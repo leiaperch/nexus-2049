@@ -9,13 +9,14 @@ import type { DistrictState } from "../sim/types";
 import { fmtPop } from "../lib/format";
 import {
   buildBuildings,
+  BUILDING_BUCKETS,
   buildPortCranes,
   buildRoads,
   buildStreetLights,
   districtGroundGeometry,
   FLOW_ROUTES,
+  makeBuildingTextures,
   makeConcreteNormal,
-  makeFacadeTextures,
   makeRoadTexture,
   makeTurbine,
   makeWaterNormal,
@@ -25,6 +26,7 @@ import {
   treeGeometry,
   treeMatrices,
   TURBINE_SPOTS,
+  type Bucket,
 } from "../lib/scene3d";
 
 interface GroundEntry {
@@ -50,8 +52,8 @@ interface SceneCtx {
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   grounds: GroundEntry[];
-  buildingMat: THREE.MeshStandardMaterial;
-  buildingMesh: THREE.Mesh | null;
+  buildingMats: Record<Bucket, THREE.MeshStandardMaterial>;
+  buildingMeshes: THREE.Mesh[];
   treeMesh: THREE.InstancedMesh | null;
   treeGeo: THREE.BufferGeometry;
   treeMat: THREE.MeshStandardMaterial;
@@ -130,7 +132,7 @@ export function CityScene() {
     scene.add(new THREE.HemisphereLight(0x4a6690, 0x1a1712, 0.7));
 
     // Textures procedurales
-    const facade = makeFacadeTextures(renderer);
+    const facades = makeBuildingTextures(renderer);
     const concreteNormal = makeConcreteNormal(renderer);
     const roadTex = makeRoadTexture(renderer);
     const waterNormal = makeWaterNormal(renderer);
@@ -189,18 +191,33 @@ export function CityScene() {
       grounds.push({ mesh, mat, border, borderMat, id: d.id });
     }
 
-    const buildingMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      map: facade.albedo,
-      normalMap: facade.normal,
-      normalScale: new THREE.Vector2(0.7, 0.7),
-      emissiveMap: facade.emissive,
-      emissive: new THREE.Color(0xffcf92),
-      emissiveIntensity: 0.5,
-      roughness: 0.66,
-      metalness: 0.1,
-      envMapIntensity: 0.55,
-    });
+    // Une matiere par famille de bâti : reflets, rugosite et eclairage distincts.
+    const MAT_TUNE: Record<
+      Bucket,
+      { rough: number; metal: number; env: number; emi: number; nrm: number }
+    > = {
+      concrete: { rough: 0.82, metal: 0.02, env: 0.35, emi: 0.35, nrm: 0.9 },
+      glass: { rough: 0.16, metal: 0.55, env: 1.25, emi: 0.85, nrm: 0.5 },
+      brick: { rough: 0.92, metal: 0.0, env: 0.28, emi: 0.3, nrm: 1.0 },
+      industrial: { rough: 0.88, metal: 0.18, env: 0.32, emi: 0.22, nrm: 0.85 },
+      dark: { rough: 0.78, metal: 0.06, env: 0.3, emi: 0.28, nrm: 0.9 },
+    };
+    const buildingMats = {} as Record<Bucket, THREE.MeshStandardMaterial>;
+    for (const b of BUILDING_BUCKETS) {
+      const t = MAT_TUNE[b];
+      buildingMats[b] = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        map: facades[b].albedo,
+        normalMap: facades[b].normal,
+        normalScale: new THREE.Vector2(t.nrm, t.nrm),
+        emissiveMap: facades[b].emissive,
+        emissive: new THREE.Color(0xffcf92),
+        emissiveIntensity: t.emi,
+        roughness: t.rough,
+        metalness: t.metal,
+        envMapIntensity: t.env,
+      });
+    }
 
     const treeMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
@@ -252,8 +269,8 @@ export function CityScene() {
       camera,
       controls,
       grounds,
-      buildingMat,
-      buildingMesh: null,
+      buildingMats,
+      buildingMeshes: [],
       treeMesh: null,
       treeGeo,
       treeMat,
@@ -270,15 +287,24 @@ export function CityScene() {
     ctxRef.current = ctx;
 
     const rebuild = (yearState: { districts: DistrictState[] }, active: string[]) => {
-      if (ctx.buildingMesh) {
-        scene.remove(ctx.buildingMesh);
-        ctx.buildingMesh.geometry.dispose();
+      for (const m of ctx.buildingMeshes) {
+        scene.remove(m);
+        m.geometry.dispose();
       }
-      const bm = new THREE.Mesh(buildBuildings(yearState.districts), buildingMat);
-      bm.castShadow = true;
-      bm.receiveShadow = true;
-      scene.add(bm);
-      ctx.buildingMesh = bm;
+      ctx.buildingMeshes = [];
+      const geoms = buildBuildings(yearState.districts);
+      for (const b of BUILDING_BUCKETS) {
+        const g = geoms[b];
+        if (g.attributes.position.count === 0) {
+          g.dispose();
+          continue;
+        }
+        const m = new THREE.Mesh(g, ctx.buildingMats[b]);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        scene.add(m);
+        ctx.buildingMeshes.push(m);
+      }
 
       if (ctx.treeMesh) {
         scene.remove(ctx.treeMesh);
@@ -466,9 +492,12 @@ export function CityScene() {
       el.removeEventListener("pointerup", onUp);
       controls.dispose();
       renderer.dispose();
-      [facade.albedo, facade.normal, facade.emissive, concreteNormal, roadTex, waterNormal].forEach(
-        (t) => t.dispose(),
-      );
+      for (const b of BUILDING_BUCKETS) {
+        facades[b].albedo.dispose();
+        facades[b].normal.dispose();
+        facades[b].emissive.dispose();
+      }
+      [concreteNormal, roadTex, waterNormal].forEach((t) => t.dispose());
       scene.traverse((o) => (o as any).geometry?.dispose?.());
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
       ctxRef.current = null;
