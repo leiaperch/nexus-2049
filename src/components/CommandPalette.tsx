@@ -44,6 +44,7 @@ export function CommandPalette({ onClose, openDecisions, openHelp }: Props) {
       { id: "mode", label: state.mode === "ops" ? "Basculer en mode Archives" : "Basculer en mode Operationnel", hint: "V", group: "Navigation", run: () => actions.toggleMode() },
       { id: "sound", label: state.soundOn ? "Couper le son" : "Activer l'ambiance sonore", hint: "M", group: "Navigation", run: () => actions.toggleSound() },
       { id: "help", label: "Afficher les raccourcis clavier", hint: "?", group: "Navigation", run: openHelp },
+      { id: "bilan", label: "Ouvrir le bilan de mandat", hint: "", group: "Navigation", run: () => actions.openEpilogue() },
     ];
     (["pollution", "greenery", "density", "energyUse", "satisfaction"] as const).forEach((mk) =>
       c.push({

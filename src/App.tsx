@@ -6,6 +6,7 @@ import { IndicatorPanel } from "./components/IndicatorPanel";
 import { Timeline } from "./components/Timeline";
 import { EventFeed } from "./components/EventFeed";
 import { YearDossiers } from "./components/YearDossiers";
+import { Epilogue } from "./components/Epilogue";
 import { DistrictInspector } from "./components/DistrictInspector";
 import { DecisionCenter } from "./components/DecisionCenter";
 import { CommandPalette } from "./components/CommandPalette";
@@ -205,6 +206,10 @@ export default function App() {
       )}
 
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
+
+      <AnimatePresence>
+        {state.epilogueOpen && <Epilogue key="epilogue" />}
+      </AnimatePresence>
 
       <AnimatePresence>
         {egg && (

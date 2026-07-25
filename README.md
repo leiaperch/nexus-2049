@@ -17,7 +17,8 @@ de bord : il **arbitre**. Chaque année, NEXUS soumet trois dossiers tirés d'un
 catalogue de 48 politiques ; **il faut en trancher au moins un pour que le temps
 avance** — on ne peut pas dérouler la projection sans gouverner. Chaque décision
 applique un effet immédiat annoncé, puis révèle des conséquences différées,
-souvent indésirables, jamais annoncées à l'avance. Trois couches synchronisées composent
+souvent indésirables, jamais annoncées à l'avance. En 2069, la chambre
+régionale des comptes rend son **bilan de mandat**. Trois couches synchronisées composent
 l'interface : la **ville vivante** (carte cartographique en canvas qui réagit
 aux politiques), la **ligne temporelle** manipulable (glisser, jouer, comparer),
 et le **centre de décision** (trois axes stratégiques, choix à coût, bénéfice et
@@ -69,6 +70,8 @@ App                          # layout, clavier global, horloge, easter egg
 │     └─ CompareBlock        # comparaison temporelle A → B
 ├─ Timeline                  # scrubber 2049-2069, lecture, vitesse, marqueurs
 ├─ DecisionCenter            # drawer : 3 axes, cartes à découverte progressive
+├─ Epilogue                  # bilan de mandat en 2069 : verdict, 2049→2069,
+│                             arbitrages par axe, faits marquants, rejouer
 ├─ CommandPalette            # ⌘/Ctrl+K
 ├─ HelpOverlay               # raccourcis clavier
 └─ Toast                     # notifications

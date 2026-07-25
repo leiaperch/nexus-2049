@@ -30,6 +30,10 @@ export interface AppState {
   reducedMotion: boolean;
   /** metrique cartographiee sur la ville. */
   mapMetric: "greenery" | "pollution" | "density" | "energyUse" | "satisfaction";
+  /** bilan de fin de mandat (2069). */
+  epilogueOpen: boolean;
+  /** le bilan a-t-il deja ete presente pour cette trajectoire ? */
+  epilogueSeen: boolean;
   /** notification ephemere. */
   toast: { id: number; text: string; tone: "ok" | "warn" | "info" } | null;
 }
@@ -54,6 +58,8 @@ let state: AppState = {
   soundOn: false,
   reducedMotion: !!prefersReduced,
   mapMetric: "greenery",
+  epilogueOpen: false,
+  epilogueSeen: false,
   toast: null,
 };
 
@@ -161,6 +167,9 @@ export const actions = {
       }
     }
     if (y !== state.currentYear) set({ currentYear: y });
+    // arrivee au terme du mandat : le bilan s'impose une fois
+    if (y >= END_YEAR && !state.epilogueSeen)
+      set({ epilogueOpen: true, epilogueSeen: true, playing: false });
   },
 
   stepYear(delta: number) {
@@ -209,6 +218,7 @@ export const actions = {
   tickForward() {
     if (state.currentYear >= END_YEAR) {
       set({ playing: false });
+      if (!state.epilogueSeen) set({ epilogueOpen: true, epilogueSeen: true });
       return;
     }
     if (!canPassYear(state.enacted, state.currentYear)) {
@@ -238,6 +248,12 @@ export const actions = {
   setMapMetric(m: AppState["mapMetric"]) {
     set({ mapMetric: m });
   },
+  openEpilogue() {
+    set({ epilogueOpen: true, epilogueSeen: true, playing: false });
+  },
+  closeEpilogue() {
+    set({ epilogueOpen: false });
+  },
   reset() {
     pushHistory();
     set({
@@ -247,6 +263,8 @@ export const actions = {
       selectedDistrict: null,
       compareYear: null,
       playing: false,
+      epilogueOpen: false,
+      epilogueSeen: false,
     });
     toast("Trajectoire reinitialisee", "info");
   },
