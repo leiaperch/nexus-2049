@@ -26,6 +26,7 @@ import {
   treeGeometry,
   treeMatrices,
   TURBINE_SPOTS,
+  TURBINE_TRIGGERS,
   type Bucket,
 } from "../lib/scene3d";
 
@@ -168,18 +169,20 @@ export function CityScene() {
     const grounds: GroundEntry[] = [];
     for (const d of ys0.districts) {
       const geo = districtGroundGeometry(d.poly);
-      // Le sol reste sobre : la donnee est portee par les batiments.
+      // Socle de terrain : quasi invisible. Les plaques colorees ont
+      // disparu — seuls les batiments portent la donnee. Ce maillage
+      // reste la pour recevoir les ombres et le clic sur le quartier.
       const mat = new THREE.MeshStandardMaterial({
         color: new THREE.Color(
           rampColor(st0.mapMetric, metricValue(d, st0.mapMetric)),
-        ).multiplyScalar(0.16),
-        roughness: 0.95,
-        metalness: 0.02,
+        ).multiplyScalar(0.05),
+        roughness: 0.98,
+        metalness: 0,
         normalMap: concreteNormal,
         normalScale: new THREE.Vector2(0.35, 0.35),
       });
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.y = 0.02;
+      mesh.position.y = 0;
       mesh.receiveShadow = true;
       mesh.userData.id = d.id;
       scene.add(mesh);
@@ -189,7 +192,7 @@ export function CityScene() {
         opacity: 0.22,
       });
       const border = new THREE.LineLoop(districtGroundGeometry(d.poly), borderMat);
-      border.position.y = 0.07;
+      border.position.y = 0.05;
       scene.add(border);
       grounds.push({ mesh, mat, border, borderMat, id: d.id });
     }
@@ -347,7 +350,9 @@ export function CityScene() {
           const [x, z] = toWorld(d.center[0], d.center[1]);
           return new THREE.Vector3(x, 2.4, z);
         });
-        const color = new THREE.Color(decId === "cli-density" ? 0xb07fb8 : 0x8fd0e6);
+        const color = new THREE.Color(
+          decId.startsWith("cli-") ? 0xb07fb8 : 0x8fd0e6,
+        );
         const line = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints(pts),
           new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 }),
@@ -362,7 +367,7 @@ export function CityScene() {
       }
 
       // Eoliennes offshore (si champ eolien actif)
-      const wantTurbines = active.includes("nrg-offshore");
+      const wantTurbines = TURBINE_TRIGGERS.some((t) => active.includes(t));
       if (wantTurbines && ctx.turbines.length === 0) {
         for (const [nx, ny] of TURBINE_SPOTS) {
           const t = makeTurbine();
@@ -392,12 +397,12 @@ export function CityScene() {
       }
       for (const g of ctx.grounds) {
         const d = ys.districts.find((x) => x.id === g.id)!;
-        tmpColor.set(rampColor(s.mapMetric, metricValue(d, s.mapMetric))).multiplyScalar(0.16);
+        tmpColor.set(rampColor(s.mapMetric, metricValue(d, s.mapMetric))).multiplyScalar(0.05);
         g.mat.color.lerp(tmpColor, manual ? 1 : 0.15);
         const isSel = s.selectedDistrict === g.id;
         const isHov = hoverRef.current === g.id;
         g.mat.emissive.copy(g.mat.color);
-        g.mat.emissiveIntensity = isSel ? 0.3 : isHov ? 0.15 : 0.06;
+        g.mat.emissiveIntensity = isSel ? 1.6 : isHov ? 0.8 : 0.1;
         g.borderMat.color.set(isSel ? 0xf2c14e : 0xe9e5d9);
         g.borderMat.opacity = isSel ? 0.9 : isHov ? 0.5 : 0.2;
       }

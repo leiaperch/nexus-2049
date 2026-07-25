@@ -1,6 +1,13 @@
 import { useSyncExternalStore } from "react";
 import { DECISION_BY_ID } from "../sim/data";
-import { canEnact, project, type Projection } from "../sim/engine";
+import {
+  canEnact,
+  canPassYear,
+  isYearResolved,
+  offersForYear,
+  project,
+  type Projection,
+} from "../sim/engine";
 import {
   END_YEAR,
   START_YEAR,
@@ -136,8 +143,23 @@ export const actions = {
     toast("Decision retablie", "info");
   },
 
-  setYear(year: number) {
-    const y = Math.round(Math.min(END_YEAR, Math.max(START_YEAR, year)));
+  /** Annee la plus avancee atteignable compte tenu des arbitrages rendus. */
+  frontier(): number {
+    let y = START_YEAR;
+    while (y < END_YEAR && canPassYear(state.enacted, y)) y++;
+    return y;
+  },
+
+  setYear(year: number, silent = false) {
+    const limit = actions.frontier();
+    let y = Math.round(Math.min(END_YEAR, Math.max(START_YEAR, year)));
+    if (y > limit) {
+      y = limit;
+      if (!silent && state.currentYear === limit) {
+        set({ playing: false });
+        toast(`${limit} : arbitrez un dossier pour avancer`, "warn");
+      }
+    }
     if (y !== state.currentYear) set({ currentYear: y });
   },
 
@@ -145,8 +167,28 @@ export const actions = {
     actions.setYear(state.currentYear + delta);
   },
 
+  /** Dossiers soumis pour l'annee courante. */
+  currentOffers() {
+    return offersForYear(state.currentYear, state.enacted);
+  },
+  /** L'annee courante est-elle arbitree ? */
+  currentResolved() {
+    return isYearResolved(state.enacted, state.currentYear);
+  },
+  /** L'avancee est-elle bloquee sur l'annee courante ? */
+  blocked() {
+    return (
+      state.currentYear < END_YEAR &&
+      !canPassYear(state.enacted, state.currentYear)
+    );
+  },
+
   play() {
     if (state.currentYear >= END_YEAR) actions.setYear(START_YEAR);
+    if (actions.blocked()) {
+      toast(`${state.currentYear} : arbitrez un dossier pour lancer`, "warn");
+      return;
+    }
     set({ playing: true });
   },
   pause() {
@@ -167,6 +209,11 @@ export const actions = {
   tickForward() {
     if (state.currentYear >= END_YEAR) {
       set({ playing: false });
+      return;
+    }
+    if (!canPassYear(state.enacted, state.currentYear)) {
+      set({ playing: false });
+      toast(`${state.currentYear} : arbitrage requis`, "warn");
       return;
     }
     set({ currentYear: state.currentYear + 1 });

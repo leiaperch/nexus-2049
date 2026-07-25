@@ -9,8 +9,11 @@ export function Timeline() {
   const { currentYear, playing, speed, projection, compareYear } = state;
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  const blocked = actions.blocked();
+  const frontier = actions.frontier();
 
   const pct = ((currentYear - START_YEAR) / (YEARS - 1)) * 100;
+  const frontierPct = ((frontier - START_YEAR) / (YEARS - 1)) * 100;
 
   const yearFromClientX = (clientX: number) => {
     const track = trackRef.current;
@@ -52,12 +55,18 @@ export function Timeline() {
     <section className="timeline" aria-label="Ligne temporelle 2049-2069">
       <div className="tl-controls">
         <button
-          className="btn btn-icon"
+          className={`btn btn-icon ${blocked ? "is-locked" : ""}`}
           onClick={() => actions.togglePlay()}
-          aria-label={playing ? "Mettre en pause" : "Lancer la simulation"}
+          aria-label={
+            blocked
+              ? "Lecture bloquee : arbitrez un dossier"
+              : playing
+                ? "Mettre en pause"
+                : "Lancer la simulation"
+          }
           aria-pressed={playing}
         >
-          {playing ? "❚❚" : "▶"}
+          {blocked ? "⊘" : playing ? "❚❚" : "▶"}
         </button>
         <button
           className="btn btn-icon"
@@ -159,6 +168,12 @@ export function Timeline() {
           />
         ))}
 
+        {/* horizon verrouille : au-dela, la projection n'est pas ouverte */}
+        <div
+          className="tl-locked"
+          style={{ left: `${frontierPct}%` }}
+          aria-hidden="true"
+        />
         {/* zone parcourue */}
         <div className="tl-progress" style={{ width: `${pct}%` }} aria-hidden="true" />
 

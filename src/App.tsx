@@ -5,6 +5,7 @@ import { CityScene } from "./components/CityScene";
 import { IndicatorPanel } from "./components/IndicatorPanel";
 import { Timeline } from "./components/Timeline";
 import { EventFeed } from "./components/EventFeed";
+import { YearDossiers } from "./components/YearDossiers";
 import { DistrictInspector } from "./components/DistrictInspector";
 import { DecisionCenter } from "./components/DecisionCenter";
 import { CommandPalette } from "./components/CommandPalette";
@@ -176,6 +177,7 @@ export default function App() {
                 <DistrictInspector />
               </div>
               <div className="stage-rail">
+                <YearDossiers />
                 <IndicatorPanel />
                 <EventFeed />
               </div>

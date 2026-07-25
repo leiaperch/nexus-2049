@@ -206,10 +206,140 @@
 .stage-rail {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 1px;
   background: var(--line-soft);
   overflow: hidden;
+}
+
+/* — Dossiers de l'annee — */
+.dossiers {
+  background: var(--ink-850);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-strong);
+}
+.dossiers.is-blocked {
+  border-left-color: var(--focus);
+  background: linear-gradient(
+    90deg,
+    rgba(242, 193, 78, 0.06),
+    transparent 60%
+  );
+}
+.dossiers-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.dossiers-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.dossiers-year {
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+.dossiers-lock {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-wide);
+  color: var(--focus);
+  border: 1px solid var(--focus);
+  padding: 2px 5px;
+  animation: lockpulse 2.4s var(--ease-in-out) infinite;
+}
+@keyframes lockpulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.dossiers-empty {
+  padding: var(--sp-3) var(--sp-4);
+}
+.dossiers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 34vh;
+  overflow-y: auto;
+}
+.dossier {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--line-soft);
+}
+.dossier-main {
+  min-width: 0;
+}
+.dossier-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.dossier-ref[data-track="energie"] {
+  color: var(--amber);
+}
+.dossier-ref[data-track="mobilite"] {
+  color: var(--ice);
+}
+.dossier-ref[data-track="climat"] {
+  color: var(--good);
+}
+.dossier-cost {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--paper-dim);
+}
+.dossier-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  margin: 2px 0 1px;
+}
+.dossier-line {
+  font-size: var(--fs-sm);
+  color: var(--paper-dim);
+  line-height: 1.4;
+}
+.dossier-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.dossier-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  color: var(--paper-dim);
+}
+.dossier-chip.good {
+  border-color: rgba(131, 168, 106, 0.5);
+}
+.dossier-chip.bad {
+  border-color: rgba(221, 75, 42, 0.5);
+}
+.dossier-chip-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+.dossier-go {
+  border-color: var(--focus);
+  color: var(--paper);
+  background: rgba(242, 193, 78, 0.08);
+}
+.dossier-go:hover {
+  background: rgba(242, 193, 78, 0.2);
 }
 
 /* ————————————————————————————————————————————————————————————————
@@ -734,6 +864,23 @@
   transform: translate(-50%, -50%);
   opacity: 0.7;
 }
+.tl-locked {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(242, 193, 78, 0.1) 0 4px,
+    transparent 4px 8px
+  );
+  border-left: 1px solid rgba(242, 193, 78, 0.45);
+  pointer-events: none;
+}
+.btn.is-locked {
+  border-color: var(--focus);
+  color: var(--focus);
+}
 .tl-cmp-line {
   position: absolute;
   top: 8px;
@@ -857,6 +1004,62 @@
   font-size: var(--fs-sm);
   color: var(--paper-faint);
   margin: var(--sp-3) 0 var(--sp-4);
+}
+
+/* — Registre des politiques (drawer) — */
+.reg-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.reg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: center;
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.reg-row.is-enacted {
+  opacity: 0.72;
+}
+.reg-main {
+  min-width: 0;
+}
+.reg-top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.reg-ref[data-track="energie"] {
+  color: var(--amber);
+}
+.reg-ref[data-track="mobilite"] {
+  color: var(--ice);
+}
+.reg-ref[data-track="climat"] {
+  color: var(--good);
+}
+.reg-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.reg-cost {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--paper-faint);
+}
+.reg-line {
+  font-size: var(--fs-sm);
+  color: var(--paper-dim);
+  margin-top: 2px;
+}
+.reg-locked {
+  white-space: nowrap;
+}
+.reg-action {
+  min-width: 92px;
+  text-align: right;
 }
 
 .decision-grid {

@@ -86,7 +86,11 @@ export interface Decision {
   title: string;
   /** intitule court pour l'historique. */
   ref: string;
-  summary: string;
+  /** UNE phrase : le seul texte explicatif montre au joueur. */
+  line: string;
+  /** annee minimale d'apparition dans les dossiers. */
+  minYear?: number;
+  summary?: string;
   /** cout initial en M credits (positif = depense). */
   upfront: number;
   /** cout/gain recurrent annuel en M credits. */
@@ -99,12 +103,10 @@ export interface Decision {
   districtOngoing?: Partial<DistrictDeltas> & { target: DistrictFunction | "all" };
   /** consequences differees, potentiellement incertaines. */
   delayed: DelayedEffect[];
-  /** risque decrit a l'utilisateur (revele avant promulgation). */
-  risk: string;
-  /** benefice principal annonce. */
-  benefit: string;
-  /** cout affiche de maniere lisible. */
-  costLabel: string;
+  /** champs longs historiques, desormais optionnels (non affiches). */
+  risk?: string;
+  benefit?: string;
+  costLabel?: string;
   /** decisions exclusives (ne peuvent coexister). */
   excludes?: string[];
   /** id requis prealable. */

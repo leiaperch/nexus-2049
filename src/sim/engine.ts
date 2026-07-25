@@ -1,5 +1,6 @@
 import {
   DECISION_BY_ID,
+  DECISIONS,
   INITIAL_DISTRICTS,
   INITIAL_INDICATORS,
 } from "./data";
@@ -80,9 +81,11 @@ function baselineDrift(ind: Indicators, year: number) {
     carbon: 0.18, // le fil de l'eau reste emetteur
     qol: -0.25,
     biodiversity: -0.4,
-    trust: -0.3,
     mobility: -0.2,
   });
+  // La confiance derive vers la qualite de vie percue : une ville ou l'on
+  // vit bien pardonne les arbitrages impopulaires, et inversement.
+  ind.trust += (ind.qol - ind.trust) * 0.045 - 0.2;
   // energie decarbonee progresse lentement toute seule (marche)
   ind.energy += 0.4;
   // choc climatique tendanciel plus fort apres 2060
@@ -91,10 +94,11 @@ function baselineDrift(ind: Indicators, year: number) {
   // — Modele budgetaire courant —
   // Recettes fiscales : socle + sensibilite a l'attractivite (QDV) et au
   // civisme fiscal (confiance). Charges : fonctionnement + adaptation
-  // climatique croissante. La ville degage un excedent courant modere,
-  // qui finance l'investissement sans le rendre indolore.
-  const revenue = 30 + (ind.qol - 58) * 0.5 + (ind.trust - 55) * 0.35;
-  const charges = 20 + (year >= 2060 ? 6 : 0) + Math.max(0, ind.carbon - 12) * 0.4;
+  // climatique croissante. Le socle est calibre pour financer environ un
+  // arbitrage par an : bien choisir laisse une marge, empiler les gros
+  // investissements creuse la dette.
+  const revenue = 82 + (ind.qol - 58) * 0.9 + (ind.trust - 55) * 0.5;
+  const charges = 24 + (year >= 2060 ? 8 : 0) + Math.max(0, ind.carbon - 12) * 0.6;
   ind.budget += revenue - charges;
 }
 
@@ -266,6 +270,87 @@ export function project(enacted: EnactedDecision[]): Projection {
     byYear,
     active: activeDecisions.map((d) => d.id),
   };
+}
+
+// ————————————————————————————————————————————————————————————————
+// Dossiers de l'annee : NEXUS soumet chaque annee un jeu de dossiers
+// tires de maniere deterministe. Le joueur doit en arbitrer au moins
+// un pour que la projection avance.
+// ————————————————————————————————————————————————————————————————
+
+function hash2(year: number, id: string): number {
+  let h = (2166136261 ^ year) >>> 0;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return (h >>> 0) / 4294967296;
+}
+
+/** Une decision est-elle recevable a cette annee ? */
+function eligible(d: Decision, taken: Set<string>, year: number): boolean {
+  if (taken.has(d.id)) return false;
+  if (d.minYear != null && year < d.minYear) return false;
+  if (d.requires && !taken.has(d.requires)) return false;
+  if (d.excludes?.some((x) => taken.has(x))) return false;
+  return true;
+}
+
+/**
+ * Dossiers soumis au conseil pour une annee donnee. Tirage deterministe,
+ * equilibre entre les trois axes tant que possible.
+ */
+export function offersForYear(
+  year: number,
+  enacted: EnactedDecision[],
+  count = 3,
+): Decision[] {
+  const taken = new Set(enacted.map((e) => e.decisionId));
+  const pool = DECISIONS.filter((d) => eligible(d, taken, year));
+  if (pool.length === 0) return [];
+
+  const byTrack = new Map<string, Decision[]>();
+  for (const d of pool) {
+    const arr = byTrack.get(d.track) ?? [];
+    arr.push(d);
+    byTrack.set(d.track, arr);
+  }
+  for (const arr of byTrack.values())
+    arr.sort((a, b) => hash2(year, a.id) - hash2(year, b.id));
+
+  // tirage a tour de role sur les axes -> dossiers contrastes
+  const tracks = [...byTrack.keys()].sort(
+    (a, b) => hash2(year, a) - hash2(year, b),
+  );
+  const picked: Decision[] = [];
+  let round = 0;
+  while (picked.length < count && round < 8) {
+    for (const t of tracks) {
+      const arr = byTrack.get(t)!;
+      if (arr.length > round) picked.push(arr[round]);
+      if (picked.length >= count) break;
+    }
+    round++;
+  }
+  return picked;
+}
+
+/** L'annee a-t-elle recu au moins un arbitrage ? */
+export function isYearResolved(
+  enacted: EnactedDecision[],
+  year: number,
+): boolean {
+  return enacted.some((e) => e.year === year);
+}
+
+/**
+ * Peut-on depasser cette annee ? Oui si elle a ete arbitree, ou si NEXUS
+ * n'avait aucun dossier a soumettre (catalogue epuise).
+ */
+export function canPassYear(
+  enacted: EnactedDecision[],
+  year: number,
+): boolean {
+  if (year >= END_YEAR) return false;
+  if (isYearResolved(enacted, year)) return true;
+  return offersForYear(year, enacted).length === 0;
 }
 
 /** Verifie si une decision peut etre promulguee a une annee donnee. */

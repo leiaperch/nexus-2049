@@ -54,17 +54,27 @@ export function CommandPalette({ onClose, openDecisions, openHelp }: Props) {
         run: () => actions.setMapMetric(mk),
       }),
     );
-    DECISIONS.forEach((d) =>
+    // seuls les dossiers soumis cette annee sont arbitrables
+    actions.currentOffers().forEach((d) =>
       c.push({
         id: `enact-${d.id}`,
-        label: `Promulguer ${d.ref} — ${d.title}`,
-        hint: d.costLabel,
-        group: "Deliberations",
+        label: `Arbitrer ${d.ref} — ${d.title}`,
+        hint: `${d.upfront} M`,
+        group: `Dossiers ${state.currentYear}`,
         run: () => actions.enactDecision(d.id),
       }),
     );
     return c;
-  }, [state.playing, state.speed, state.mode, state.soundOn, openDecisions, openHelp]);
+  }, [
+    state.playing,
+    state.speed,
+    state.mode,
+    state.soundOn,
+    state.currentYear,
+    state.enacted,
+    openDecisions,
+    openHelp,
+  ]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();

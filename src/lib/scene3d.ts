@@ -24,11 +24,18 @@ export const RIVER: [number, number][] = [
   [1.02, 0.74],
 ];
 
+/** Lignes visibles dans la maquette, activees par les politiques votees. */
 export const FLOW_ROUTES: Record<string, string[]> = {
-  "mob-lrt": ["quai-nord", "ferronnerie", "halage", "verrieres"],
-  "mob-logistics": ["quai-nord", "ferronnerie", "halage"],
-  "cli-density": ["solferine", "ferronnerie"],
+  "mob-tram-ligne-a": ["quai-nord", "ferronnerie", "halage", "verrieres"],
+  "mob-tram-tangentielle": ["verrieres", "halage", "bas-marais"],
+  "mob-metro-automatique": ["ferronnerie", "solferine"],
+  "mob-rer-metropolitain": ["quai-nord", "ferronnerie", "solferine"],
+  "mob-logistique-fluviale": ["quai-nord", "ferronnerie", "halage"],
+  "cli-densification-douce": ["solferine", "ferronnerie"],
 };
+
+/** Politiques qui font apparaitre le champ eolien au large. */
+export const TURBINE_TRIGGERS = ["nrg-eolien-large"];
 
 export const ROAD_LINKS: [string, string][] = [
   ["quai-nord", "ferronnerie"],
@@ -614,19 +621,143 @@ function hashAngle(id: string): number {
   return ((h >>> 0) / 4294967296) * Math.PI;
 }
 
-function pickBucket(buckets: [Bucket, number][], r: number): Bucket {
+/** Tirage pondere generique (les poids doivent sommer a ~1). */
+function pickWeighted<T>(entries: [T, number][], r: number): T {
   let acc = 0;
-  for (const [b, w] of buckets) {
+  for (const [v, w] of entries) {
     acc += w;
-    if (r <= acc) return b;
+    if (r <= acc) return v;
   }
-  return buckets[buckets.length - 1][0];
+  return entries[entries.length - 1][0];
+}
+
+/** Archetypes bâtis disponibles. */
+type Kind =
+  | "slab"
+  | "point"
+  | "stepped"
+  | "round"
+  | "courtyard"
+  | "rowhouse"
+  | "sawtooth"
+  | "silo"
+  | "civic"
+  | "ell";
+
+/** Repartition des archetypes selon la fonction du quartier. */
+const KIND_WEIGHTS: Record<DistrictState["fn"], [Kind, number][]> = {
+  portuaire: [
+    ["sawtooth", 0.24],
+    ["silo", 0.16],
+    ["slab", 0.15],
+    ["ell", 0.12],
+    ["rowhouse", 0.1],
+    ["courtyard", 0.08],
+    ["stepped", 0.06],
+    ["point", 0.05],
+    ["round", 0.03],
+    ["civic", 0.01],
+  ],
+  affaires: [
+    ["point", 0.2],
+    ["stepped", 0.16],
+    ["round", 0.14],
+    ["courtyard", 0.14],
+    ["slab", 0.13],
+    ["ell", 0.09],
+    ["rowhouse", 0.06],
+    ["sawtooth", 0.04],
+    ["civic", 0.02],
+    ["silo", 0.02],
+  ],
+  residentiel: [
+    ["courtyard", 0.22],
+    ["slab", 0.18],
+    ["rowhouse", 0.16],
+    ["ell", 0.14],
+    ["point", 0.11],
+    ["stepped", 0.08],
+    ["round", 0.05],
+    ["civic", 0.03],
+    ["sawtooth", 0.02],
+    ["silo", 0.01],
+  ],
+  historique: [
+    ["rowhouse", 0.32],
+    ["courtyard", 0.2],
+    ["ell", 0.15],
+    ["slab", 0.11],
+    ["civic", 0.09],
+    ["stepped", 0.05],
+    ["point", 0.04],
+    ["round", 0.02],
+    ["sawtooth", 0.02],
+  ],
+  mixte: [
+    ["slab", 0.18],
+    ["courtyard", 0.16],
+    ["point", 0.14],
+    ["ell", 0.12],
+    ["rowhouse", 0.12],
+    ["round", 0.1],
+    ["stepped", 0.1],
+    ["sawtooth", 0.04],
+    ["civic", 0.02],
+    ["silo", 0.02],
+  ],
+  humide: [
+    ["rowhouse", 0.34],
+    ["slab", 0.18],
+    ["ell", 0.14],
+    ["courtyard", 0.1],
+    ["silo", 0.1],
+    ["sawtooth", 0.08],
+    ["civic", 0.04],
+    ["stepped", 0.02],
+  ],
+};
+
+/**
+ * Decoupe recursive d'un ilot en parcelles irregulieres (BSP).
+ * Produit un parcellaire qui pave l'ilot sans recouvrement, avec des
+ * tailles et proportions variees — la cle d'un tissu urbain credible.
+ */
+function splitLot(
+  x0: number,
+  z0: number,
+  x1: number,
+  z1: number,
+  minLot: number,
+  rng: () => number,
+  out: [number, number, number, number][],
+  depth: number,
+) {
+  const w = x1 - x0;
+  const d = z1 - z0;
+  const canSplitX = w > minLot * 2;
+  const canSplitZ = d > minLot * 2;
+  // arret : parcelle assez petite, ou arret aleatoire pour garder de gros lots
+  if ((!canSplitX && !canSplitZ) || depth > 5 || (depth > 1 && rng() < 0.16)) {
+    out.push([x0, z0, x1, z1]);
+    return;
+  }
+  const splitAlongX = canSplitX && (!canSplitZ || w >= d);
+  const t = 0.36 + rng() * 0.28; // coupe franchement asymetrique
+  if (splitAlongX) {
+    const xm = x0 + w * t;
+    splitLot(x0, z0, xm, z1, minLot, rng, out, depth + 1);
+    splitLot(xm, z0, x1, z1, minLot, rng, out, depth + 1);
+  } else {
+    const zm = z0 + d * t;
+    splitLot(x0, z0, x1, zm, minLot, rng, out, depth + 1);
+    splitLot(x0, zm, x1, z1, minLot, rng, out, depth + 1);
+  }
 }
 
 /**
- * Implante les batiments en ilots : rues, fronts bâtis continus le long
- * des ilots, coeurs d'ilot laisses vides. Chaque quartier a sa propre
- * orientation de trame ; chaque batiment tire une matiere et un gabarit.
+ * Implante les batiments : chaque quartier a sa propre orientation de
+ * trame, se decoupe en ilots separes par des rues, et chaque ilot est
+ * subdivise en parcelles irregulieres portant un archetype distinct.
  * Renvoie une geometrie par matiere (fusion).
  */
 export function buildBuildings(
@@ -642,6 +773,16 @@ export function buildBuildings(
     dark: newSink(),
   };
 
+  // Taille minimale de parcelle par fonction (pilote la finesse du tissu).
+  const LOT_MIN: Record<DistrictState["fn"], number> = {
+    portuaire: 5.5,
+    affaires: 3.4,
+    residentiel: 3.2,
+    historique: 2.6,
+    mixte: 3.6,
+    humide: 6,
+  };
+
   for (const d of districts) {
     const style = FN_STYLE[d.fn];
     const rng = mulberry32((d.id.length * 2654435761) ^ Math.round(d.density * 13));
@@ -650,7 +791,6 @@ export function buildBuildings(
     const theta = hashAngle(d.id);
     const co = Math.cos(theta);
     const si = Math.sin(theta);
-    // monde -> local (repere de l'ilot), et retour
     const toLocal = (x: number, z: number): [number, number] => {
       const dx = x - cwx;
       const dz = z - cwz;
@@ -661,7 +801,6 @@ export function buildBuildings(
       cwz + lx * si + lz * co,
     ];
 
-    // bbox locale du polygone
     let lminX = Infinity,
       lmaxX = -Infinity,
       lminZ = Infinity,
@@ -675,170 +814,205 @@ export function buildBuildings(
       lmaxZ = Math.max(lmaxZ, lz);
     }
 
-    const block = style.block;
-    const street = 3.4;
-    const pitch = block + street;
-    const depth = 4.2; // profondeur du front bâti
-
     const insidePt = (lx: number, lz: number) => {
       const [wx, wz] = toWorldL(lx, lz);
       return pointInPoly(wx / WORLD_W + 0.5, wz / WORLD_D + 0.5, d.poly);
     };
-    /** l'emprise entiere doit tenir dans le quartier (pas de debord). */
+    /** l'emprise doit tenir dans le quartier : centre + 3 coins au moins. */
     const footprintInside = (lcx: number, lcz: number, ax: number, az: number) => {
-      const hx = ax / 2 + 0.6;
-      const hz = az / 2 + 0.6;
-      return (
-        insidePt(lcx - hx, lcz - hz) &&
-        insidePt(lcx + hx, lcz - hz) &&
-        insidePt(lcx + hx, lcz + hz) &&
-        insidePt(lcx - hx, lcz + hz)
-      );
+      if (!insidePt(lcx, lcz)) return false;
+      const hx = ax / 2 + 0.2;
+      const hz = az / 2 + 0.2;
+      let n = 0;
+      if (insidePt(lcx - hx, lcz - hz)) n++;
+      if (insidePt(lcx + hx, lcz - hz)) n++;
+      if (insidePt(lcx + hx, lcz + hz)) n++;
+      if (insidePt(lcx - hx, lcz + hz)) n++;
+      return n >= 3;
     };
     const dTint = tint[d.id] ?? new THREE.Color(0.6, 0.6, 0.6);
 
-    const place = (
-      lcx: number,
-      lcz: number,
-      alongX: number,
-      alongZ: number,
-      corner: boolean,
-    ) => {
-      if (!footprintInside(lcx, lcz, alongX, alongZ)) return;
-      const [wx, wz] = toWorldL(lcx, lcz);
-      const bucket = pickBucket(style.buckets, rng());
-      const s = sinks[bucket];
+    // — Palette : matiere + teinte de donnee —
+    const colorFor = (bucket: Bucket) => {
       const shade = 0.84 + rng() * 0.3;
-
-      // Couleur de base propre a la matiere…
       let mr: number, mg: number, mb: number;
       if (bucket === "glass") {
-        mr = 0.42;
-        mg = 0.5;
-        mb = 0.6;
+        mr = 0.42; mg = 0.5; mb = 0.6;
       } else if (bucket === "brick") {
-        mr = 0.66;
-        mg = 0.42;
-        mb = 0.35;
+        mr = 0.66; mg = 0.42; mb = 0.35;
       } else if (bucket === "industrial") {
-        mr = 0.54;
-        mg = 0.56;
-        mb = 0.55;
+        mr = 0.54; mg = 0.56; mb = 0.55;
       } else if (bucket === "dark") {
-        mr = 0.4;
-        mg = 0.41;
-        mb = 0.44;
+        mr = 0.4; mg = 0.41; mb = 0.44;
       } else {
-        mr = 0.7;
-        mg = 0.68;
-        mb = 0.63;
+        mr = 0.7; mg = 0.68; mb = 0.63;
       }
-      // …melangee a la teinte de la couche de donnee : ce sont les
-      // batiments qui portent l'information, pas le sol.
       const k = 0.85;
-      const gain = 1.5; // les facades doivent lire la donnee franchement
-      const cr = (mr * (1 - k) + dTint.r * k) * shade * gain;
-      const cg = (mg * (1 - k) + dTint.g * k) * shade * gain;
-      const cb = (mb * (1 - k) + dTint.b * k) * shade * gain;
+      const gain = 1.5;
+      return [
+        (mr * (1 - k) + dTint.r * k) * shade * gain,
+        (mg * (1 - k) + dTint.g * k) * shade * gain,
+        (mb * (1 - k) + dTint.b * k) * shade * gain,
+      ] as [number, number, number];
+    };
+
+    // — Emission d'un batiment selon son archetype —
+    const emit = (
+      lcx: number,
+      lcz: number,
+      sx: number,
+      sz: number,
+      kind: Kind,
+    ) => {
+      if (sx < 2 || sz < 2) return;
+      if (!footprintInside(lcx, lcz, sx, sz)) return;
+      const [wx, wz] = toWorldL(lcx, lcz);
+      const bucket = pickWeighted(style.buckets, rng());
+      const s = sinks[bucket];
+      const [cr, cg, cb] = colorFor(bucket);
       const uOff = rng() * 4;
       const vOff = rng() * 4;
       const hBase = style.hMin + (style.hMax - style.hMin) * densF;
-      // distribution non uniforme : beaucoup de bas, quelques emergences
       const u = rng();
-      const spike = u > 0.86 ? 1.5 + rng() * 0.9 : u > 0.6 ? 1.0 : 0.62 + rng() * 0.3;
-      let h = Math.max(2.5, hBase * spike);
-      if (corner && style.hMax > 14) h *= 1.15 + rng() * 0.25;
+      const spike = u > 0.9 ? 1.35 + rng() * 0.45 : u > 0.66 ? 0.95 + rng() * 0.25 : 0.48 + rng() * 0.35;
+      const h = Math.max(2.5, Math.min(style.hMax * 1.35, hBase * spike));
+      const dk = [cr * 0.78, cg * 0.78, cb * 0.78] as const;
 
-      const sx = alongX;
-      const sz = alongZ;
-
-      if (bucket === "glass" && corner && h > 16) {
-        // tour ronde de verre en tete d'ilot
-        addCylinder(s, wx, 0, wz, Math.min(sx, sz) * 0.42, Math.min(sx, sz) * 0.5, h, 12, cr, cg, cb, 0.24, uOff);
-        addCylinder(s, wx, h, wz, Math.min(sx, sz) * 0.3, Math.min(sx, sz) * 0.42, 1.4, 12, cr * 0.8, cg * 0.8, cb * 0.8, 0.24, uOff);
-      } else {
-        addBox(s, wx, 0, wz, sx, h, sz, cr, cg, cb, 0.24, theta, uOff, vOff);
-        if (style.gableRoofs && rng() > 0.35) {
-          addGable(s, wx, h, wz, sx, Math.min(sx, sz) * 0.45 + 0.6, sz, cr * 0.85, cg * 0.8, cb * 0.72, theta);
-        } else if (rng() > 0.55) {
-          addBox(
-            s,
-            wx,
-            h,
-            wz,
-            sx * (0.3 + rng() * 0.3),
-            0.6 + rng() * 1.8,
-            sz * (0.3 + rng() * 0.3),
-            cr * 0.75,
-            cg * 0.75,
-            cb * 0.75,
-            0.24,
-            theta,
-            uOff,
-            vOff,
-          );
-          if (corner && h > 18 && rng() > 0.5)
-            addBox(s, wx, h + 1.6, wz, 0.3, 2 + rng() * 4, 0.3, 0.18, 0.18, 0.18, 0.24, theta);
+      switch (kind) {
+        case "courtyard": {
+          // ilot ferme : quatre ailes autour d'une cour
+          const wgt = Math.max(1.8, Math.min(sx, sz) * 0.3);
+          const hh = Math.max(3, h * 0.62);
+          addBox(s, wx, 0, wz, sx, hh, wgt, cr, cg, cb, 0.24, theta, uOff, vOff);
+          const [bx1, bz1] = [lcx, lcz + (sz - wgt) / 2];
+          const [w1x, w1z] = toWorldL(bx1, bz1);
+          addBox(s, w1x, 0, w1z, sx, hh * (0.85 + rng() * 0.3), wgt, cr, cg, cb, 0.24, theta, uOff + 1, vOff);
+          const [w2x, w2z] = toWorldL(lcx - (sx - wgt) / 2, lcz);
+          addBox(s, w2x, 0, w2z, wgt, hh * (0.85 + rng() * 0.3), sz, cr, cg, cb, 0.24, theta, uOff + 2, vOff);
+          const [w3x, w3z] = toWorldL(lcx + (sx - wgt) / 2, lcz);
+          addBox(s, w3x, 0, w3z, wgt, hh * (0.85 + rng() * 0.3), sz, cr, cg, cb, 0.24, theta, uOff + 3, vOff);
+          break;
+        }
+        case "point": {
+          // tour ponctuelle elancee sur socle
+          const pod = Math.max(2.5, h * 0.16);
+          addBox(s, wx, 0, wz, sx, pod, sz, dk[0], dk[1], dk[2], 0.24, theta, uOff, vOff);
+          const tw = sx * 0.58;
+          const td = sz * 0.58;
+          addBox(s, wx, pod, wz, tw, h - pod, td, cr, cg, cb, 0.24, theta, uOff, vOff);
+          addBox(s, wx, h, wz, tw * 0.55, 1.2 + rng() * 1.6, td * 0.55, dk[0], dk[1], dk[2], 0.24, theta);
+          if (rng() > 0.45)
+            addBox(s, wx, h + 1.4, wz, 0.28, 2.5 + rng() * 4.5, 0.28, 0.16, 0.16, 0.17, 0.24, theta);
+          break;
+        }
+        case "stepped": {
+          // gradins successifs
+          const tiers = 3 + Math.floor(rng() * 2);
+          let y = 0;
+          let fw = sx;
+          let fd = sz;
+          for (let t = 0; t < tiers; t++) {
+            const th = (h / tiers) * (0.75 + rng() * 0.4);
+            addBox(s, wx, y, wz, fw, th, fd, cr, cg, cb, 0.24, theta, uOff, vOff + t);
+            y += th;
+            fw *= 0.74 + rng() * 0.1;
+            fd *= 0.74 + rng() * 0.1;
+          }
+          break;
+        }
+        case "round": {
+          const rr = Math.min(sx, sz) * 0.48;
+          addCylinder(s, wx, 0, wz, rr * 0.9, rr, h, 14, cr, cg, cb, 0.24, uOff);
+          addCylinder(s, wx, h, wz, rr * 0.55, rr * 0.9, 1.3, 14, dk[0], dk[1], dk[2], 0.24, uOff);
+          break;
+        }
+        case "rowhouse": {
+          const hh = Math.max(3, h * 0.5);
+          addBox(s, wx, 0, wz, sx, hh, sz, cr, cg, cb, 0.24, theta, uOff, vOff);
+          addGable(s, wx, hh, wz, sx, Math.min(sx, sz) * 0.42 + 0.8, sz, dk[0], dk[1], dk[2], theta);
+          break;
+        }
+        case "sawtooth": {
+          // halle industrielle : bas, longue, toiture en sheds
+          const hh = Math.max(2.5, Math.min(h * 0.45, 7));
+          addBox(s, wx, 0, wz, sx, hh, sz, cr, cg, cb, 0.24, theta, uOff, vOff);
+          const n = Math.max(2, Math.floor(sx / 3));
+          for (let i = 0; i < n; i++) {
+            const ox = -sx / 2 + (i + 0.5) * (sx / n);
+            const [gx, gz] = toWorldL(lcx + ox, lcz);
+            addGable(s, gx, hh, gz, sx / n - 0.2, 1.1, sz, dk[0], dk[1], dk[2], theta);
+          }
+          break;
+        }
+        case "silo": {
+          const rr = Math.min(sx, sz) * 0.24;
+          const n = 2 + Math.floor(rng() * 2);
+          for (let i = 0; i < n; i++) {
+            const ox = -sx / 2 + ((i + 0.5) * sx) / n;
+            const [gx, gz] = toWorldL(lcx + ox, lcz);
+            addCylinder(s, gx, 0, gz, rr, rr, h * (0.9 + rng() * 0.6), 10, cr, cg, cb, 0.24, uOff + i);
+          }
+          break;
+        }
+        case "civic": {
+          const hh = Math.max(4, h * 0.55);
+          addBox(s, wx, 0, wz, sx, hh, sz, cr, cg, cb, 0.24, theta, uOff, vOff);
+          addGable(s, wx, hh, wz, sx, Math.min(sx, sz) * 0.4 + 1, sz, dk[0], dk[1], dk[2], theta);
+          // clocher
+          const [tx, tz] = toWorldL(lcx - sx * 0.3, lcz);
+          addBox(s, tx, 0, tz, sx * 0.22, hh * 1.9, sz * 0.22, cr, cg, cb, 0.24, theta, uOff, vOff);
+          addCylinder(s, tx, hh * 1.9, tz, 0.05, sx * 0.13, 2.6, 6, dk[0], dk[1], dk[2], 0.24);
+          break;
+        }
+        case "ell": {
+          const a = 0.52 + rng() * 0.18;
+          addBox(s, wx, 0, wz, sx, h, sz * a, cr, cg, cb, 0.24, theta, uOff, vOff);
+          const [ex, ez] = toWorldL(lcx - sx * (0.5 - a * 0.5), lcz + sz * 0.2);
+          addBox(s, ex, 0, ez, sx * a, h * (0.66 + rng() * 0.3), sz, cr, cg, cb, 0.24, theta, uOff + 1, vOff);
+          break;
+        }
+        default: {
+          // barre simple, avec edicule occasionnel
+          addBox(s, wx, 0, wz, sx, h, sz, cr, cg, cb, 0.24, theta, uOff, vOff);
+          if (rng() > 0.55)
+            addBox(
+              s,
+              wx,
+              h,
+              wz,
+              sx * (0.28 + rng() * 0.3),
+              0.7 + rng() * 1.8,
+              sz * (0.28 + rng() * 0.3),
+              dk[0],
+              dk[1],
+              dk[2],
+              0.24,
+              theta,
+            );
         }
       }
     };
 
-    // parcours des ilots
+    // — Decoupage en ilots puis en parcelles (BSP) —
+    const block = style.block;
+    const street = 2.6;
+    const pitch = block + street;
+    const minLot = LOT_MIN[d.fn];
+
     for (let bx = lminX; bx <= lmaxX; bx += pitch) {
       for (let bz = lminZ; bz <= lmaxZ; bz += pitch) {
         if (rng() > style.blockFill) continue;
-        const x0 = bx,
-          x1 = bx + block,
-          z0 = bz,
-          z1 = bz + block;
-        // Parcelles individuelles : chaque batiment est un lot distinct,
-        // separe par un joint, avec un leger recul variable sur rue.
-        const GAP = 0.7; // joint mitoyen
-        const rowX = (zEdge: number, dirIn: number, isCorner0: boolean) => {
-          let x = x0 + depth * 0.5;
-          let first = true;
-          while (x < x1 - depth * 0.5) {
-            const w = Math.min(3 + rng() * 2.6, x1 - depth * 0.5 - x);
-            if (w < 1.6) break;
-            const dd = depth * (0.75 + rng() * 0.45); // profondeur variable
-            const setback = rng() * 1.1; // recul sur rue
-            place(
-              x + w / 2,
-              zEdge + dirIn * (dd / 2 + setback),
-              w - GAP,
-              dd,
-              first && isCorner0,
-            );
-            x += w;
-            first = false;
-          }
-        };
-        const rowZ = (xEdge: number, dirIn: number) => {
-          let z = z0 + depth * 0.5;
-          while (z < z1 - depth * 0.5) {
-            const w = Math.min(3 + rng() * 2.6, z1 - depth * 0.5 - z);
-            if (w < 1.6) break;
-            const dd = depth * (0.75 + rng() * 0.45);
-            const setback = rng() * 1.1;
-            place(xEdge + dirIn * (dd / 2 + setback), z + w / 2, dd, w - GAP, false);
-            z += w;
-          }
-        };
-        rowX(z0, 1, true);
-        rowX(z1, -1, false);
-        rowZ(x0, 1);
-        rowZ(x1, -1);
-        // coeur d'ilot : plots bas, plus frequents en secteur dense
-        const cores = densF > 0.6 ? 2 : 1;
-        for (let k = 0; k < cores; k++) {
-          if (rng() > 0.55) continue;
-          place(
-            (x0 + x1) / 2 + (rng() - 0.5) * block * 0.42,
-            (z0 + z1) / 2 + (rng() - 0.5) * block * 0.42,
-            3 + rng() * 2.6,
-            3 + rng() * 2.6,
-            false,
-          );
+        const lots: [number, number, number, number][] = [];
+        splitLot(bx, bz, bx + block, bz + block, minLot, rng, lots, 0);
+        for (const [x0, z0, x1, z1] of lots) {
+          // joint mitoyen + retrait variable : les parcelles ne se touchent pas
+          const gap = 0.3 + rng() * 0.35;
+          const sx = x1 - x0 - gap * 2;
+          const sz = z1 - z0 - gap * 2;
+          if (sx < 1.8 || sz < 1.8) continue;
+          if (rng() < 0.07) continue; // parcelle laissee libre (cour, jardin)
+          const kind = pickWeighted(KIND_WEIGHTS[d.fn], rng());
+          emit((x0 + x1) / 2, (z0 + z1) / 2, sx, sz, kind);
         }
       }
     }
