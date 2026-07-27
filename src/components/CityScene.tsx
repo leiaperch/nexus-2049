@@ -7,6 +7,7 @@ import { MAP_METRIC_LABEL, metricValue, rampColor } from "../lib/colors";
 import type { AppState } from "../store/store";
 import type { DistrictState } from "../sim/types";
 import { fmtPop } from "../lib/format";
+import { HERO } from "../lib/hero";
 import {
   buildBuildings,
   BUILDING_BUCKETS,
@@ -118,7 +119,9 @@ export function CityScene() {
     scene.fog = new THREE.Fog(0x0b0f16, 150, 320);
 
     const camera = new THREE.PerspectiveCamera(42, width / height, 0.5, 1000);
-    camera.position.set(-72, 74, 98);
+    // Vitrine : caméra rapprochée, zoomée sur le cœur de la ville.
+    if (HERO) camera.position.set(-40, 40, 54);
+    else camera.position.set(-72, 74, 98);
 
     const pmrem = new THREE.PMREMGenerator(renderer);
     const sky = skyTexture();
@@ -304,11 +307,16 @@ export function CityScene() {
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.enablePan = false;
-    controls.minDistance = 58;
+    controls.minDistance = HERO ? 30 : 58;
     controls.maxDistance = 195;
     controls.minPolarAngle = 0.15;
     controls.maxPolarAngle = 1.32;
     controls.rotateSpeed = 0.7;
+    // Vitrine : la ville tourne doucement toute seule, tout en restant saisissable.
+    if (HERO) {
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.35;
+    }
     controls.update();
 
     const ctx: SceneCtx = {

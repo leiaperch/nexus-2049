@@ -18,6 +18,7 @@ import { HelpOverlay } from "./components/HelpOverlay";
 import { useClock } from "./hooks/useClock";
 import { actions, useStore } from "./store/store";
 import { setAudioEnabled, sfx } from "./lib/audio";
+import { HERO } from "./lib/hero";
 
 const MAP_KEYS = ["pollution", "greenery", "density", "energyUse", "satisfaction"] as const;
 
@@ -153,6 +154,21 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Vitrine embarquée : seulement la ville zoomée, manipulable, sans le
+  // tableau de bord ni l'intro.
+  if (HERO) {
+    return (
+      <div className="app hero">
+        <main id="stage" className="stage" data-mode="ops">
+          <div className="stage-map">
+            <CityScene />
+            <DistrictInspector />
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <>
