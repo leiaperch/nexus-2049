@@ -2415,6 +2415,8 @@
   grid-template-columns: 1fr;
 }
 .app.hero .scene-hint,
-.app.hero .map-legend {
+.app.hero .map-legend,
+.app.hero .map-metric-switch,
+.app.hero .district-hit {
   display: none;
 }
